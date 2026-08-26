@@ -201,3 +201,9 @@ async def create_purchase_order(po_data) -> Dict[str, Any]:
     await db["purchase_orders"].insert_one(po_doc)
     po_doc["id"] = po_doc["_id"]
     return po_doc
+
+async def delete_product(product_id: str) -> bool:
+    db = get_database()
+    res = await db["products"].delete_one({"_id": product_id})
+    return res.deleted_count > 0
+

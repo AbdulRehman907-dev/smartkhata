@@ -92,9 +92,20 @@ class CustomerCreate(BaseModel):
     phone: str
     address: Optional[str] = ""
     type: str = "regular" # regular, farmer, business
+    opening_balance: Optional[float] = 0.0
 
-class CustomerResponse(CustomerCreate):
+class CustomerUpdate(BaseModel):
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    type: Optional[str] = None
+
+class CustomerResponse(BaseModel):
     id: str
+    name: str
+    phone: str
+    address: Optional[str] = ""
+    type: str = "regular"
     balance_due: float = 0.0
     updated_at: str
 

@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query  # type: ignore
 from app.models.schemas import ProductCreate, ProductUpdate, StockAdjustment, ProductResponse
 from app.auth.dependencies import get_current_user, require_owner, require_employee_or_owner
 from app.services.inventory_service import (
-    create_product, get_products, get_product_by_id, update_product, adjust_stock
+    create_product, get_products, get_product_by_id, update_product, adjust_stock, delete_product
 )
 
 router = APIRouter(prefix="/api/products", tags=["Inventory"])
@@ -59,3 +59,13 @@ async def adjust_product_stock(
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/{product_id}")
+async def remove_product(
+    product_id: str,
+    current_user: dict = Depends(require_employee_or_owner)
+):
+    success = await delete_product(product_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Product not found.")
+    return {"message": "Product deleted successfully", "id": product_id}

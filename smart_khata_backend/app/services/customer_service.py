@@ -1,14 +1,14 @@
 import uuid
 from typing import List, Optional, Dict, Any
 from app.database import get_database
-from app.models.schemas import CustomerCreate, CustomerPayment, utc_now_iso
+from app.models.schemas import CustomerCreate, CustomerUpdate, CustomerPayment, utc_now_iso
 
 async def create_customer(data: CustomerCreate) -> Dict[str, Any]:
     db = get_database()
     now = utc_now_iso()
     doc = data.model_dump()
     doc["_id"] = str(uuid.uuid4())
-    doc["balance_due"] = 0.0
+    doc["balance_due"] = float(doc.pop("opening_balance", 0.0) or 0.0)
     doc["updated_at"] = now
     await db["customers"].insert_one(doc)
     doc["id"] = doc["_id"]
@@ -102,3 +102,20 @@ async def get_customer_transaction_history(customer_id: str) -> List[Dict[str, A
     # Sort interleaved history newest-first
     history.sort(key=lambda x: x.get("date", ""), reverse=True)
     return history
+
+async def update_customer(customer_id: str, updates: CustomerUpdate) -> Optional[Dict[str, Any]]:
+    db = get_database()
+    update_data = {k: v for k, v in updates.model_dump().items() if v is not None}
+    if not update_data:
+        return await get_customer_by_id(customer_id)
+    
+    update_data["updated_at"] = utc_now_iso()
+    res = await db["customers"].update_one({"_id": customer_id}, {"$set": update_data})
+    if res.matched_count == 0:
+        return None
+    return await get_customer_by_id(customer_id)
+
+async def delete_customer(customer_id: str) -> bool:
+    db = get_database()
+    res = await db["customers"].delete_one({"_id": customer_id})
+    return res.deleted_count > 0
