@@ -90,3 +90,5 @@ Thumbs.db
 
 # Agent / Local tool cache
 .agent/
+release/
+*.apk
