@@ -10,8 +10,12 @@ class UserRegister(BaseModel):
     username: str
     password: str
     name: str
-    role: str = "employee" # owner or employee
+    role: str = "owner" # owner or employee
     employee_id: Optional[str] = None
+    store_name: Optional[str] = None
+    store_type: Optional[str] = "Kiryana / General Store"
+    phone: Optional[str] = None
+    city: Optional[str] = "Sahiwal"
 
 class UserLogin(BaseModel):
     username: str
@@ -23,6 +27,7 @@ class TokenResponse(BaseModel):
     role: str
     username: str
     name: str
+    store_name: Optional[str] = "Smart Khata Store"
 
 # Product & Stock
 class ProductCreate(BaseModel):

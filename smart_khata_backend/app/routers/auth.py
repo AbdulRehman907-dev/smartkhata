@@ -1,6 +1,6 @@
 import uuid
 from fastapi import APIRouter, HTTPException, status, Depends  # type: ignore
-from app.models.schemas import UserRegister, UserLogin, TokenResponse
+from app.models.schemas import UserRegister, UserLogin, TokenResponse, utc_now_iso
 from app.database import get_database
 from app.auth.security import hash_password, verify_password, create_access_token
 
@@ -14,13 +14,19 @@ async def register(user_data: UserRegister):
         raise HTTPException(status_code=400, detail="Username is already registered.")
 
     user_id = str(uuid.uuid4())
+    store_name = user_data.store_name or f"{user_data.name}'s Kiryana Store"
     doc = {
         "_id": user_id,
         "username": user_data.username,
         "hashed_password": hash_password(user_data.password),
         "name": user_data.name,
         "role": user_data.role.lower(),
-        "employee_id": user_data.employee_id
+        "employee_id": user_data.employee_id,
+        "store_name": store_name,
+        "store_type": user_data.store_type or "Kiryana / General Store",
+        "phone": user_data.phone,
+        "city": user_data.city or "Sahiwal",
+        "created_at": utc_now_iso()
     }
     await db["users"].insert_one(doc)
 
@@ -29,7 +35,8 @@ async def register(user_data: UserRegister):
         access_token=token,
         role=doc["role"],
         username=doc["username"],
-        name=doc["name"]
+        name=doc["name"],
+        store_name=doc["store_name"]
     )
 
 @router.post("/login", response_model=TokenResponse)
@@ -47,5 +54,6 @@ async def login(credentials: UserLogin):
         access_token=token,
         role=user["role"],
         username=user["username"],
-        name=user["name"]
+        name=user["name"],
+        store_name=user.get("store_name", "Smart Khata Store")
     )

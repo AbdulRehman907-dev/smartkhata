@@ -24,7 +24,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Map<String, dynamic>? _metrics;
   bool _isLoading = true;
   String _userRole = 'owner';
-  String _userName = 'Ahmad General Store';
+  String _userName = 'Tariq Kiryana Owner';
+  String _storeName = 'Smart Khata Store';
   int _currentNavIndex = 0;
 
   @override
@@ -37,7 +38,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
       _userRole = prefs.getString(AppConstants.userRoleKey) ?? 'owner';
-      _userName = prefs.getString(AppConstants.userNameKey) ?? 'Ahmad General Store';
+      _userName = prefs.getString(AppConstants.userNameKey) ?? 'Tariq Kiryana Owner';
+      _storeName = prefs.getString(AppConstants.storeNameKey) ?? 'Smart Khata Store';
     });
 
     try {
@@ -82,17 +84,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Assalamualaikum,',
+                  _storeName,
                   style: GoogleFonts.inter(
-                    color: AppConstants.textMuted,
-                    fontSize: 13,
+                    color: AppConstants.deepEmerald,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
                 Text(
                   _userName,
                   style: GoogleFonts.inter(
                     color: AppConstants.charcoal,
-                    fontSize: 18,
+                    fontSize: 17,
                     fontWeight: FontWeight.bold,
                   ),
                 ),

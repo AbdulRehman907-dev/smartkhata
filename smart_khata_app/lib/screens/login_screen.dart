@@ -13,15 +13,25 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
+  bool _isRegisterMode = false;
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
+  
+  // Registration specific controllers
+  final _nameController = TextEditingController();
+  final _storeNameController = TextEditingController();
+  final _phoneController = TextEditingController();
+  String _selectedStoreType = 'Kiryana / General Store';
+
   bool _isLoading = false;
   String? _errorMessage;
+  String? _successMessage;
 
   Future<void> _handleLogin() async {
     setState(() {
       _isLoading = true;
       _errorMessage = null;
+      _successMessage = null;
     });
 
     try {
@@ -32,13 +42,15 @@ class _LoginScreenState extends State<LoginScreen> {
       });
 
       final token = response['access_token'];
-      final role = response['role'];
-      final name = response['name'];
+      final role = response['role'] ?? 'owner';
+      final name = response['name'] ?? 'Owner';
+      final storeName = response['store_name'] ?? 'Smart Khata Store';
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(AppConstants.tokenKey, token);
       await prefs.setString(AppConstants.userRoleKey, role);
       await prefs.setString(AppConstants.userNameKey, name);
+      await prefs.setString(AppConstants.storeNameKey, storeName);
 
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
@@ -46,7 +58,7 @@ class _LoginScreenState extends State<LoginScreen> {
       );
     } catch (e) {
       setState(() {
-        _errorMessage = e.toString().replaceAll('HttpException: ', '');
+        _errorMessage = e.toString().replaceAll('HttpException: ', '').replaceAll('Exception: ', '');
       });
     } finally {
       if (mounted) {
@@ -55,6 +67,149 @@ class _LoginScreenState extends State<LoginScreen> {
         });
       }
     }
+  }
+
+  Future<void> _handleRegister() async {
+    if (_usernameController.text.trim().isEmpty ||
+        _passwordController.text.isEmpty ||
+        _nameController.text.trim().isEmpty ||
+        _storeNameController.text.trim().isEmpty) {
+      setState(() {
+        _errorMessage = 'تمام ضروری خانے پُر کریں (Please fill all fields)';
+      });
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+      _successMessage = null;
+    });
+
+    try {
+      final client = ApiClient();
+      final response = await client.post('/auth/register', {
+        'username': _usernameController.text.trim(),
+        'password': _passwordController.text,
+        'name': _nameController.text.trim(),
+        'role': 'owner',
+        'store_name': _storeNameController.text.trim(),
+        'store_type': _selectedStoreType,
+        'phone': _phoneController.text.trim(),
+        'city': 'Sahiwal',
+      });
+
+      final token = response['access_token'];
+      final role = response['role'] ?? 'owner';
+      final name = response['name'] ?? _nameController.text.trim();
+      final storeName = response['store_name'] ?? _storeNameController.text.trim();
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(AppConstants.tokenKey, token);
+      await prefs.setString(AppConstants.userRoleKey, role);
+      await prefs.setString(AppConstants.userNameKey, name);
+      await prefs.setString(AppConstants.storeNameKey, storeName);
+
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const DashboardScreen()),
+      );
+    } catch (e) {
+      setState(() {
+        _errorMessage = e.toString().replaceAll('HttpException: ', '').replaceAll('Exception: ', '');
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  void _showServerSettingsDialog() async {
+    final prefs = await SharedPreferences.getInstance();
+    final currentUrl = prefs.getString(AppConstants.customServerUrlKey) ?? AppConstants.baseUrl;
+    final serverController = TextEditingController(text: currentUrl);
+
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppConstants.surfaceWhite,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.cloud_sync_outlined, color: AppConstants.deepEmerald),
+            const SizedBox(width: 8),
+            Text(
+              'Server Connection',
+              style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 18),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Enter your Free Render Cloud API URL or local LAN IP:',
+              style: GoogleFonts.inter(fontSize: 13, color: AppConstants.textMuted),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: serverController,
+              decoration: const InputDecoration(
+                hintText: 'https://smart-khata-api.onrender.com/api',
+                labelText: 'API Base URL',
+              ),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              children: [
+                ActionChip(
+                  label: const Text('Localhost'),
+                  onPressed: () => serverController.text = 'http://127.0.0.1:8000/api',
+                ),
+                ActionChip(
+                  label: const Text('Emulator (10.0.2.2)'),
+                  onPressed: () => serverController.text = 'http://10.0.2.2:8000/api',
+                ),
+                ActionChip(
+                  label: const Text('Render Cloud'),
+                  onPressed: () => serverController.text = AppConstants.defaultCloudUrl,
+                ),
+              ],
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppConstants.deepEmerald),
+            onPressed: () async {
+              final newUrl = serverController.text.trim();
+              if (newUrl.isNotEmpty) {
+                await prefs.setString(AppConstants.customServerUrlKey, newUrl);
+                AppConstants.customServerUrl = newUrl;
+              }
+              if (ctx.mounted) Navigator.of(ctx).pop();
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Server URL set to: $newUrl'),
+                  backgroundColor: AppConstants.deepEmerald,
+                ),
+              );
+            },
+            child: const Text('Save Server', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -68,54 +223,66 @@ class _LoginScreenState extends State<LoginScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Top Brand Logo Header
+                // Top Brand Logo Header & Server Settings Button
                 Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(10.0),
-                      decoration: BoxDecoration(
-                        color: AppConstants.deepEmerald,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Icon(
-                        Icons.storefront,
-                        color: Colors.white,
-                        size: 22,
-                      ),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10.0),
+                          decoration: BoxDecoration(
+                            color: AppConstants.deepEmerald,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(
+                            Icons.storefront,
+                            color: Colors.white,
+                            size: 22,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Text(
+                          'smart khata',
+                          style: GoogleFonts.inter(
+                            color: AppConstants.charcoal,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: -0.5,
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 10),
-                    Text(
-                      'smart khata',
-                      style: GoogleFonts.inter(
-                        color: AppConstants.charcoal,
-                        fontSize: 20,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: -0.5,
-                      ),
+                    IconButton(
+                      icon: const Icon(Icons.settings_ethernet, color: AppConstants.deepEmerald),
+                      tooltip: 'Configure Server URL',
+                      onPressed: _showServerSettingsDialog,
                     ),
                   ],
                 ),
-                const SizedBox(height: 48),
+                const SizedBox(height: 36),
 
-                // Welcome back header (Instrument Serif)
+                // Welcome / Register Header (Instrument Serif)
                 Text(
-                  'Welcome back',
+                  _isRegisterMode ? 'Create Store' : 'Welcome back',
                   style: GoogleFonts.instrumentSerif(
                     color: AppConstants.charcoal,
-                    fontSize: 42,
+                    fontSize: 38,
                     fontWeight: FontWeight.bold,
                     height: 1.1,
                   ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
                 Text(
-                  'Sign in to your Smart Khata account',
+                  _isRegisterMode
+                      ? 'نیا کھاتہ رجسٹر کریں (Register your retail dukaan)'
+                      : 'اپنے اسمارٹ کھاتہ میں لاگ ان کریں (Sign in to your account)',
                   style: GoogleFonts.inter(
                     color: AppConstants.textMuted,
-                    fontSize: 15,
+                    fontSize: 14,
                   ),
                 ),
-                const SizedBox(height: 36),
+                const SizedBox(height: 24),
 
                 if (_errorMessage != null)
                   Container(
@@ -129,97 +296,115 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     child: Text(
                       _errorMessage!,
-                      style: GoogleFonts.inter(color: AppConstants.alertRed, fontSize: 14),
+                      style: GoogleFonts.inter(color: AppConstants.alertRed, fontSize: 13),
                     ),
                   ),
+
+                // ── Registration specific fields ──────────────────────────────
+                if (_isRegisterMode) ...[
+                  Text(
+                    'Store Name (دکان کا نام)',
+                    style: GoogleFonts.inter(
+                      color: AppConstants.charcoal,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: _storeNameController,
+                    decoration: const InputDecoration(
+                      hintText: 'e.g. Madina Kiryana Store',
+                      prefixIcon: Icon(Icons.store, color: AppConstants.textMuted, size: 20),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+
+                  Text(
+                    'Owner Full Name (مالک کا نام)',
+                    style: GoogleFonts.inter(
+                      color: AppConstants.charcoal,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: _nameController,
+                    decoration: const InputDecoration(
+                      hintText: 'e.g. Tariq Mahmood',
+                      prefixIcon: Icon(Icons.person_outline, color: AppConstants.textMuted, size: 20),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+
+                  Text(
+                    'Phone Number (موبائل نمبر)',
+                    style: GoogleFonts.inter(
+                      color: AppConstants.charcoal,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: _phoneController,
+                    keyboardType: TextInputType.phone,
+                    decoration: const InputDecoration(
+                      hintText: '03001234567',
+                      prefixIcon: Icon(Icons.phone_outlined, color: AppConstants.textMuted, size: 20),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                ],
 
                 // Username / Phone Label & Input
                 Text(
-                  'Username or Phone number',
+                  _isRegisterMode ? 'Choose Username (یوزر نیم)' : 'Username or Phone number',
                   style: GoogleFonts.inter(
                     color: AppConstants.charcoal,
-                    fontSize: 14,
+                    fontSize: 13,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
                 TextField(
                   controller: _usernameController,
-                  style: GoogleFonts.inter(color: AppConstants.charcoal, fontSize: 16),
-                  decoration: InputDecoration(
-                    hintText: 'e.g. admin or 3012345678',
-                    prefixIcon: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      margin: const EdgeInsets.only(right: 12),
-                      decoration: const BoxDecoration(
-                        border: Border(right: BorderSide(color: AppConstants.softBorder)),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Text('🇵🇰', style: TextStyle(fontSize: 18)),
-                          const SizedBox(width: 4),
-                          Text(
-                            '+92',
-                            style: GoogleFonts.inter(
-                              color: AppConstants.charcoal,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 14,
-                            ),
-                          ),
-                          const Icon(Icons.arrow_drop_down, color: AppConstants.textMuted, size: 18),
-                        ],
-                      ),
-                    ),
+                  style: GoogleFonts.inter(color: AppConstants.charcoal, fontSize: 15),
+                  decoration: const InputDecoration(
+                    hintText: 'e.g. admin or mykiryana',
+                    prefixIcon: Icon(Icons.badge_outlined, color: AppConstants.textMuted, size: 20),
                   ),
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 14),
 
                 // Password / PIN Label & Input
                 Text(
-                  'Enter Password / PIN',
+                  'Password / PIN (پاس ورڈ)',
                   style: GoogleFonts.inter(
                     color: AppConstants.charcoal,
-                    fontSize: 14,
+                    fontSize: 13,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
                 TextField(
                   controller: _passwordController,
                   obscureText: true,
-                  style: GoogleFonts.inter(color: AppConstants.charcoal, fontSize: 16),
+                  style: GoogleFonts.inter(color: AppConstants.charcoal, fontSize: 15),
                   decoration: const InputDecoration(
                     hintText: '••••••••',
-                    prefixIcon: Icon(Icons.lock_outline, color: AppConstants.textMuted),
+                    prefixIcon: Icon(Icons.lock_outline, color: AppConstants.textMuted, size: 20),
                   ),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 24),
 
-                // Forgot Password link
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(
-                    onPressed: () {},
-                    style: TextButton.styleFrom(padding: EdgeInsets.zero),
-                    child: Text(
-                      'Forgot Password?',
-                      style: GoogleFonts.inter(
-                        color: AppConstants.charcoal,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 28),
-
-                // Primary Action Button (Continue ->)
+                // Primary Action Button (Login or Register)
                 SizedBox(
                   width: double.infinity,
-                  height: 54,
+                  height: 52,
                   child: ElevatedButton(
-                    onPressed: _isLoading ? null : _handleLogin,
+                    onPressed: _isLoading ? null : (_isRegisterMode ? _handleRegister : _handleLogin),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppConstants.deepEmerald,
                       elevation: 0,
@@ -233,41 +418,47 @@ class _LoginScreenState extends State<LoginScreen> {
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               Text(
-                                'Continue',
+                                _isRegisterMode ? 'Register Store (کھاتہ بنائیں)' : 'Sign In (لاگ ان)',
                                 style: GoogleFonts.inter(
-                                  fontSize: 16,
+                                  fontSize: 15,
                                   fontWeight: FontWeight.w600,
                                   color: Colors.white,
                                 ),
                               ),
                               const SizedBox(width: 8),
-                              const Icon(Icons.arrow_forward_rounded, color: Colors.white, size: 20),
+                              const Icon(Icons.arrow_forward_rounded, color: Colors.white, size: 18),
                             ],
                           ),
                   ),
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: 20),
 
-                // Biometric Login Prompt Icon
+                // Switch between Login and Register Mode
                 Center(
-                  child: Column(
-                    children: [
-                      IconButton(
-                        onPressed: () {},
-                        icon: const Icon(
-                          Icons.fingerprint_rounded,
-                          size: 40,
-                          color: AppConstants.deepEmerald,
-                        ),
+                  child: TextButton(
+                    onPressed: () {
+                      setState(() {
+                        _isRegisterMode = !_isRegisterMode;
+                        _errorMessage = null;
+                      });
+                    },
+                    child: RichText(
+                      text: TextSpan(
+                        text: _isRegisterMode
+                            ? 'Already have an account? '
+                            : 'New store owner? ',
+                        style: GoogleFonts.inter(color: AppConstants.textMuted, fontSize: 13),
+                        children: [
+                          TextSpan(
+                            text: _isRegisterMode ? 'Sign In' : 'Create Store (نیا اکاؤنٹ)',
+                            style: GoogleFonts.inter(
+                              color: AppConstants.deepEmerald,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
                       ),
-                      Text(
-                        'Touch ID / Face ID',
-                        style: GoogleFonts.inter(
-                          color: AppConstants.textMuted,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
               ],

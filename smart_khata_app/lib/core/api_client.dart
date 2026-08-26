@@ -25,17 +25,30 @@ class ApiClient {
   }
 
   // ── Candidate base URLs (tried in order) ─────────────────────────────────
-  List<String> get _candidateUrls => [
-        AppConstants.baseUrl,
-        'http://127.0.0.1:8000/api',
-        'http://10.0.2.2:8000/api', // Android emulator localhost alias
-      ];
+  Future<List<String>> _getCandidateUrls() async {
+    final prefs = await SharedPreferences.getInstance();
+    final customUrl = prefs.getString(AppConstants.customServerUrlKey);
+    final urls = <String>[];
+    if (customUrl != null && customUrl.trim().isNotEmpty) {
+      urls.add(customUrl.trim());
+    }
+    if (!urls.contains(AppConstants.baseUrl)) {
+      urls.add(AppConstants.baseUrl);
+    }
+    for (final fallback in ['http://127.0.0.1:8000/api', 'http://10.0.2.2:8000/api', 'http://192.168.100.12:8000/api']) {
+      if (!urls.contains(fallback)) {
+        urls.add(fallback);
+      }
+    }
+    return urls;
+  }
 
   // ── GET ───────────────────────────────────────────────────────────────────
   Future<dynamic> get(String endpoint) async {
     final headers = await _getHeaders();
+    final candidateUrls = await _getCandidateUrls();
 
-    for (final base in _candidateUrls) {
+    for (final base in candidateUrls) {
       try {
         final res = await http
             .get(Uri.parse('$base$endpoint'), headers: headers)
@@ -50,14 +63,15 @@ class ApiClient {
       }
     }
     throw const SocketException(
-        'Backend unreachable. Check Wi-Fi / USB debugging or run the backend server.');
+        'Backend unreachable. Check Wi-Fi / Cloud connection or run the backend server.');
   }
 
   // ── POST ──────────────────────────────────────────────────────────────────
   Future<dynamic> post(String endpoint, Map<String, dynamic> body) async {
     final headers = await _getHeaders();
+    final candidateUrls = await _getCandidateUrls();
 
-    for (final base in _candidateUrls) {
+    for (final base in candidateUrls) {
       try {
         final res = await http
             .post(
@@ -81,8 +95,9 @@ class ApiClient {
   // ── PUT ───────────────────────────────────────────────────────────────────
   Future<dynamic> put(String endpoint, Map<String, dynamic> body) async {
     final headers = await _getHeaders();
+    final candidateUrls = await _getCandidateUrls();
 
-    for (final base in _candidateUrls) {
+    for (final base in candidateUrls) {
       try {
         final res = await http
             .put(
@@ -106,8 +121,9 @@ class ApiClient {
   // ── DELETE ────────────────────────────────────────────────────────────────
   Future<dynamic> delete(String endpoint) async {
     final headers = await _getHeaders();
+    final candidateUrls = await _getCandidateUrls();
 
-    for (final base in _candidateUrls) {
+    for (final base in candidateUrls) {
       try {
         final res = await http
             .delete(Uri.parse('$base$endpoint'), headers: headers)
@@ -130,8 +146,9 @@ class ApiClient {
   /// [filePath]  — absolute path to the recorded audio file on the device
   Future<dynamic> postAudioFile(String endpoint, String filePath) async {
     final token = await getToken();
+    final candidateUrls = await _getCandidateUrls();
 
-    for (final base in _candidateUrls) {
+    for (final base in candidateUrls) {
       try {
         final uri = Uri.parse('$base$endpoint');
         final request = http.MultipartRequest('POST', uri);

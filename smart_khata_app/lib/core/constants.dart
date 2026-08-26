@@ -5,10 +5,14 @@ class AppConstants {
   static const String appName = 'Smart Khata';
 
   // ── API Base URL ───────────────────────────────────────────────────────────
-  // For web (Chrome debug): uses localhost
-  // For Android emulator: 10.0.2.2 maps to host machine localhost
-  // For physical device: set your PC's local IP here (e.g. 192.168.1.x)
+  // Default cloud demo or local fallback
+  static const String defaultCloudUrl = 'https://smart-khata-api.onrender.com/api';
+  static String? customServerUrl;
+
   static String get baseUrl {
+    if (customServerUrl != null && customServerUrl!.isNotEmpty) {
+      return customServerUrl!;
+    }
     if (kIsWeb) {
       return 'http://127.0.0.1:8000/api';
     }
@@ -16,8 +20,7 @@ class AppConstants {
     return 'http://10.0.2.2:8000/api';
   }
 
-  /// Fallback physical device IP — change to your PC's Wi-Fi IP when
-  /// running on a real Android phone on the same network.
+  /// Fallback physical device IP
   static const String physicalDeviceIp = '192.168.100.12';
   static String get physicalDeviceUrl => 'http://$physicalDeviceIp:8000/api';
 
@@ -29,6 +32,8 @@ class AppConstants {
   static const String tokenKey = 'jwt_token';
   static const String userRoleKey = 'user_role';
   static const String userNameKey = 'user_name';
+  static const String storeNameKey = 'user_store_name';
+  static const String customServerUrlKey = 'custom_server_url';
   static const String lastSyncKey = 'last_sync_timestamp';
 
   // ── Pakistani Kiryana / Dukaan Design System 1.0 ──────────────────────────
