@@ -92,11 +92,12 @@ def _extract_quantity_from_segment(segment: str) -> float:
 def _match_single_product(segment: str, products: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     """Match product within a text snippet."""
     s = segment.lower()
+    tokens = set(re.findall(r"[\w\u0600-\u06FF]+", s))
     for p in products:
         p_name = p.get("name", "").lower()
         p_urdu = (p.get("urdu_name") or "").lower()
-        terms = [w for w in p_name.split() if len(w) >= 3]
-        terms += [w for w in p_urdu.split() if len(w) >= 2]
+        terms = [w.lower() for w in p_name.split() if len(w) >= 3]
+        terms += [w.lower() for w in p_urdu.split() if len(w) >= 2]
 
         if "rice" in p_name: terms += ["chawal", "چاول", "basmati", "چول"]
         if "wheat" in p_name or "flour" in p_name or "atta" in p_name: terms += ["atta", "آٹا", "flour", "maida", "کنک"]
@@ -106,7 +107,7 @@ def _match_single_product(segment: str, products: List[Dict[str, Any]]) -> Optio
         if "tea" in p_name or "patti" in p_name: terms += ["patti", "پتی", "chaye", "چائے"]
         if "daal" in p_name or "lentil" in p_name: terms += ["daal", "دال", "chana", "moong"]
 
-        if p_name in s or p_urdu in s or any(tok in s for tok in terms):
+        if p_name in s or (p_urdu and p_urdu in s) or any(tok in tokens for tok in terms):
             return p
     return None
 
@@ -508,9 +509,9 @@ async def classify_and_execute_intent(text: str, context: Optional[Dict[str, Any
     # 6. CUSTOMER_BALANCE (Outstanding Khata Lookups)
     # ──────────────────────────────────────────────────────────────────────
     elif _matches_any(text_lower, [
-        "balance", "baki", "owe", "kitna dena", "hisaab", "khata",
-        "بقایہ", "باقی", "حساب", "کھاتہ", "کتنا دینا", "کتنا لینا", "کھاتے"
-    ]) or (matched_customer and _matches_any(text_lower, ["kitna", "کتنا"]) and not _matches_any(text_lower, ["stock", "اسٹاک", "سٹاک", "bacha"])):
+        "balance", "baki", "owe", "kitna dena", "hisaab", "khata", "khatay", "khate",
+        "بقایہ", "باقی", "حساب", "کھاتہ", "کھاتا", "کھاتے", "کتنا دینا", "کتنا لینا", "کھاتے میں", "کھاتا بتاؤ"
+    ]) or (matched_customer and _matches_any(text_lower, ["kitna", "کتنا", "batao", "بتاؤ", "dikhao", "دکھاؤ", "balance", "khata", "کھاتا", "کھاتہ"]) and not _matches_any(text_lower, ["stock", "اسٹاک", "سٹاک", "bacha"])):
         intent = "customer_balance"
         if matched_customer:
             bal = matched_customer.get("balance_due", 0)
@@ -527,7 +528,7 @@ async def classify_and_execute_intent(text: str, context: Optional[Dict[str, Any
     elif _matches_any(text_lower, [
         "stock", "available", "bacha", "bache", "kitna stock", "اسٹاک", "سٹاک",
         "check_stock", "مال کنا", "بچا ہے", "کتنا بچا"
-    ]) or (multi_line_items and not _matches_any(text_lower, ["becho", "sell", "de do", "udhaar", "diye", "paid", "khata", "کھاتہ", "hisaab", "حساب"])):
+    ]) or (multi_line_items and not _matches_any(text_lower, ["becho", "sell", "de do", "udhaar", "diye", "paid", "khata", "کھاتہ", "کھاتا", "کھاتے", "hisaab", "حساب"])):
         intent = "check_stock"
         if multi_line_items:
             stock_reports = []

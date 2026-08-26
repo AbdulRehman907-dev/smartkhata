@@ -21,17 +21,15 @@ class _LoginScreenState extends State<LoginScreen> {
   final _nameController = TextEditingController();
   final _storeNameController = TextEditingController();
   final _phoneController = TextEditingController();
-  String _selectedStoreType = 'Kiryana / General Store';
+  final String _selectedStoreType = 'Kiryana / General Store';
 
   bool _isLoading = false;
   String? _errorMessage;
-  String? _successMessage;
 
   Future<void> _handleLogin() async {
     setState(() {
       _isLoading = true;
       _errorMessage = null;
-      _successMessage = null;
     });
 
     try {
@@ -83,7 +81,6 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() {
       _isLoading = true;
       _errorMessage = null;
-      _successMessage = null;
     });
 
     try {
@@ -193,12 +190,14 @@ class _LoginScreenState extends State<LoginScreen> {
             style: ElevatedButton.styleFrom(backgroundColor: AppConstants.deepEmerald),
             onPressed: () async {
               final newUrl = serverController.text.trim();
+              final messenger = ScaffoldMessenger.of(context);
+              final navigator = Navigator.of(ctx);
               if (newUrl.isNotEmpty) {
                 await prefs.setString(AppConstants.customServerUrlKey, newUrl);
                 AppConstants.customServerUrl = newUrl;
               }
-              if (ctx.mounted) Navigator.of(ctx).pop();
-              ScaffoldMessenger.of(context).showSnackBar(
+              navigator.pop();
+              messenger.showSnackBar(
                 SnackBar(
                   content: Text('Server URL set to: $newUrl'),
                   backgroundColor: AppConstants.deepEmerald,
