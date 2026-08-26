@@ -5,19 +5,15 @@ class AppConstants {
   static const String appName = 'Smart Khata';
 
   // ── API Base URL ───────────────────────────────────────────────────────────
-  // Default cloud demo or local fallback
-  static const String defaultCloudUrl = 'https://smart-khata-api.onrender.com/api';
+  // Default cloud live production URL
+  static const String defaultCloudUrl = 'https://smartkhata-production.up.railway.app/api';
   static String? customServerUrl;
 
   static String get baseUrl {
     if (customServerUrl != null && customServerUrl!.isNotEmpty) {
       return customServerUrl!;
     }
-    if (kIsWeb) {
-      return 'http://127.0.0.1:8000/api';
-    }
-    // Android emulator alias to host localhost
-    return 'http://10.0.2.2:8000/api';
+    return defaultCloudUrl;
   }
 
   /// Fallback physical device IP
