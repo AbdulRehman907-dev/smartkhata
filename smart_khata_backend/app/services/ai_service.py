@@ -222,21 +222,47 @@ async def classify_and_execute_intent(text: str, context: Optional[Dict[str, Any
     customers = await get_customers()
     employees = await get_employees()
 
-    # ── Match Customer ─────────────────────────────────────────────────────
+    # ── Match Customer (with disambiguation & phone matching) ─────────────
     matched_customer: Optional[Dict[str, Any]] = None
+    candidate_customers: List[Dict[str, Any]] = []
+
     for c in customers:
         c_name = c.get("name", "").lower()
+        c_phone = str(c.get("phone", "")).strip()
         tokens = [t for t in c_name.split() if len(t) >= 3]
-        if c_name in text_lower or any(tok in text_lower for tok in tokens):
-            matched_customer = c
-            break
-        for urdu_key, eng_aliases in URDU_NAME_MAP.items():
-            if urdu_key in text_lower:
-                if any(alias in c_name for alias in eng_aliases):
-                    matched_customer = c
+        phone_suffix = c_phone[-4:] if len(c_phone) >= 4 else ""
+
+        is_match = False
+        if c_name and c_name in text_lower:
+            is_match = True
+        elif any(tok in text_lower for tok in tokens):
+            is_match = True
+        elif phone_suffix and phone_suffix in text_lower:
+            is_match = True
+        else:
+            for urdu_key, eng_aliases in URDU_NAME_MAP.items():
+                if urdu_key in text_lower and any(alias in c_name for alias in eng_aliases):
+                    is_match = True
                     break
-        if matched_customer:
-            break
+        
+        if is_match:
+            candidate_customers.append(c)
+
+    if len(candidate_customers) == 1:
+        matched_customer = candidate_customers[0]
+    elif len(candidate_customers) > 1:
+        # 1. Prioritize full phone number or phone suffix match
+        phone_matched = [c for c in candidate_customers if str(c.get("phone", "")) and str(c.get("phone", ""))[-4:] in text_lower]
+        if phone_matched:
+            matched_customer = phone_matched[0]
+        else:
+            # 2. Prioritize longest exact name match (e.g. "Muhammad Ali" over "Ali")
+            candidate_customers.sort(key=lambda x: len(x.get("name", "")), reverse=True)
+            exact_full = [c for c in candidate_customers if c.get("name", "").lower() in text_lower]
+            if exact_full:
+                matched_customer = exact_full[0]
+            else:
+                matched_customer = candidate_customers[0]
 
     # ── Match Employee ─────────────────────────────────────────────────────
     matched_employee: Optional[Dict[str, Any]] = None
