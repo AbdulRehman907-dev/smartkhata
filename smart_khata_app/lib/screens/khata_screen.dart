@@ -52,6 +52,19 @@ class _KhataScreenState extends State<KhataScreen> {
       }
     } catch (e) {
       setState(() => _isLoading = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to load customers: $e'),
+            backgroundColor: AppConstants.alertRed,
+            action: SnackBarAction(
+              label: 'RETRY',
+              textColor: Colors.white,
+              onPressed: _fetchCustomers,
+            ),
+          ),
+        );
+      }
     }
   }
 
@@ -790,25 +803,33 @@ _اسمارٹ کھاتہ AI اسٹور مینجمنٹ_''';
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator(color: AppConstants.deepEmerald))
-                : filteredCustomers.isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.people_outline, size: 64, color: AppConstants.textMuted),
-                            const SizedBox(height: 12),
-                            Text('No customers found', style: GoogleFonts.inter(color: AppConstants.textMuted, fontSize: 16)),
-                            const SizedBox(height: 12),
-                            ElevatedButton.icon(
-                              style: ElevatedButton.styleFrom(backgroundColor: AppConstants.deepEmerald),
-                              icon: const Icon(Icons.person_add, color: Colors.white),
-                              label: const Text('Add First Customer', style: TextStyle(color: Colors.white)),
-                              onPressed: () => _showAddEditCustomerDialog(),
-                            ),
-                          ],
-                        ),
-                      )
-                    : ListView.builder(
+                : RefreshIndicator(
+                    onRefresh: _fetchCustomers,
+                    color: AppConstants.deepEmerald,
+                    child: filteredCustomers.isEmpty
+                        ? ListView(
+                            children: [
+                              SizedBox(height: MediaQuery.of(context).size.height * 0.2),
+                              Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const Icon(Icons.people_outline, size: 64, color: AppConstants.textMuted),
+                                    const SizedBox(height: 12),
+                                    Text('No customers found', style: GoogleFonts.inter(color: AppConstants.textMuted, fontSize: 16)),
+                                    const SizedBox(height: 12),
+                                    ElevatedButton.icon(
+                                      style: ElevatedButton.styleFrom(backgroundColor: AppConstants.deepEmerald),
+                                      icon: const Icon(Icons.person_add, color: Colors.white),
+                                      label: const Text('Add First Customer', style: TextStyle(color: Colors.white)),
+                                      onPressed: () => _showAddEditCustomerDialog(),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          )
+                        : ListView.builder(
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                         itemCount: filteredCustomers.length,
                         itemBuilder: (ctx, idx) {
@@ -885,6 +906,7 @@ _اسمارٹ کھاتہ AI اسٹور مینجمنٹ_''';
                           );
                         },
                       ),
+                  ),
           ),
         ],
       ),

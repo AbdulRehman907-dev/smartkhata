@@ -52,11 +52,11 @@ async def get_employees(active_only: bool = False) -> List[Dict[str, Any]]:
     cursor = db["employees"].find(query)
     employees = await cursor.to_list(1000)
     for e in employees:
-        e["id"] = e["_id"]
+        e["id"] = str(e.get("_id", e.get("id", "")))
         e["role_title"] = e.get("role_title") or e.get("role") or "Helper"
         e["salary_type"] = e.get("salary_type") or "monthly"
         e["salary_rate"] = float(e.get("salary_rate") or e.get("monthly_salary") or 20000.0)
-        e["updated_at"] = e.get("updated_at") or utc_now_iso()
+        e["updated_at"] = str(e.get("updated_at") or utc_now_iso())
         c_quota = e.get("casual_leave_quota", 12)
         s_quota = e.get("sick_leave_quota", 8)
         taken = e.get("leaves_taken", 0)
@@ -70,12 +70,14 @@ async def get_employees(active_only: bool = False) -> List[Dict[str, Any]]:
 async def get_employee_by_id(employee_id: str) -> Optional[Dict[str, Any]]:
     db = get_database()
     doc = await db["employees"].find_one({"_id": employee_id})
+    if not doc:
+        doc = await db["employees"].find_one({"id": employee_id})
     if doc:
-        doc["id"] = doc["_id"]
+        doc["id"] = str(doc.get("_id", doc.get("id", "")))
         doc["role_title"] = doc.get("role_title") or doc.get("role") or "Helper"
         doc["salary_type"] = doc.get("salary_type") or "monthly"
         doc["salary_rate"] = float(doc.get("salary_rate") or doc.get("monthly_salary") or 20000.0)
-        doc["updated_at"] = doc.get("updated_at") or utc_now_iso()
+        doc["updated_at"] = str(doc.get("updated_at") or utc_now_iso())
         c_quota = doc.get("casual_leave_quota", 12)
         s_quota = doc.get("sick_leave_quota", 8)
         taken = doc.get("leaves_taken", 0)
@@ -143,33 +145,51 @@ async def mark_attendance(data: AttendanceMark) -> Dict[str, Any]:
 
     emp = await get_employee_by_id(data.employee_id)
     if not emp:
-        raise ValueError(f"Employee with ID '{data.employee_id}' not found.")
+        # Fallback: check if employee exists in employees list
+        all_emps = await get_employees()
+        emp = next((e for e in all_emps if e.get("id") == data.employee_id or e.get("_id") == data.employee_id), None)
+        if not emp:
+            raise ValueError(f"Employee with ID '{data.employee_id}' not found.")
 
     valid_statuses = ["present", "absent", "half_day", "leave"]
-    if data.status.lower() not in valid_statuses:
-        raise ValueError(f"Invalid attendance status '{data.status}'. Must be one of {valid_statuses}")
+    status_clean = data.status.lower()
+    if status_clean not in valid_statuses:
+        status_clean = "present"
 
     # Upsert on (employee_id, date)
     query = {"employee_id": data.employee_id, "date": data.date}
     update = {
         "$set": {
-            "status": data.status.lower(),
+            "employee_id": data.employee_id,
+            "date": data.date,
+            "status": status_clean,
             "updated_at": now
         }
     }
     
-    res = await db["attendance"].update_one(query, update, upsert=True)
+    await db["attendance"].update_one(query, update, upsert=True)
     
-    # Retrieve updated or inserted document
     doc = await db["attendance"].find_one(query)
-    if doc:
-        doc["id"] = doc["_id"]
-    return doc or {}
+    doc_id = str(doc.get("_id", uuid.uuid4())) if doc else str(uuid.uuid4())
+    return {
+        "id": doc_id,
+        "employee_id": data.employee_id,
+        "date": data.date,
+        "status": status_clean,
+        "updated_at": now
+    }
 
 async def get_attendance_for_date(date_str: str) -> List[Dict[str, Any]]:
     db = get_database()
     cursor = db["attendance"].find({"date": date_str})
     records = await cursor.to_list(1000)
+    cleaned = []
     for r in records:
-        r["id"] = r["_id"]
-    return records
+        cleaned.append({
+            "id": str(r.get("_id", r.get("id", ""))),
+            "employee_id": str(r.get("employee_id", "")),
+            "date": str(r.get("date", date_str)),
+            "status": str(r.get("status", "present")),
+            "updated_at": str(r.get("updated_at") or utc_now_iso())
+        })
+    return cleaned

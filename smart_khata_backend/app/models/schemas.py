@@ -57,9 +57,19 @@ class StockAdjustment(BaseModel):
     quantity_change: float # + for add, - for spoilage/reduction
     reason: str = "manual_correction"
 
-class ProductResponse(ProductCreate):
+class ProductResponse(BaseModel):
     id: str
-    updated_at: str
+    name: str
+    urdu_name: Optional[str] = ""
+    category: Optional[str] = "General"
+    unit: Optional[str] = "kg"
+    buying_price: float = 0.0
+    selling_price: float = 0.0
+    current_stock: float = 0.0
+    low_stock_threshold: float = 5.0
+    supplier_id: Optional[str] = None
+    barcode: Optional[str] = None
+    updated_at: Optional[str] = ""
 
 # Supplier & Purchase Orders
 class SupplierCreate(BaseModel):
@@ -73,7 +83,7 @@ class SupplierResponse(SupplierCreate):
     total_purchased: float = 0.0
     total_paid: float = 0.0
     balance_owed: float = 0.0
-    updated_at: str
+    updated_at: Optional[str] = ""
 
 class POLineItem(BaseModel):
     product_id: str
@@ -89,9 +99,9 @@ class PurchaseOrderCreate(BaseModel):
 # Customer & Khata
 class CustomerCreate(BaseModel):
     name: str
-    phone: str
+    phone: Optional[str] = ""
     address: Optional[str] = ""
-    type: str = "regular" # regular, farmer, business
+    type: Optional[str] = "regular" # regular, farmer, business
     opening_balance: Optional[float] = 0.0
 
 class CustomerUpdate(BaseModel):
@@ -103,11 +113,11 @@ class CustomerUpdate(BaseModel):
 class CustomerResponse(BaseModel):
     id: str
     name: str
-    phone: str
+    phone: Optional[str] = ""
     address: Optional[str] = ""
-    type: str = "regular"
+    type: Optional[str] = "regular"
     balance_due: float = 0.0
-    updated_at: str
+    updated_at: Optional[str] = ""
 
 class CustomerPayment(BaseModel):
     customer_id: str
@@ -196,9 +206,12 @@ class AttendanceMark(BaseModel):
     date: str # YYYY-MM-DD
     status: str # present, absent, half_day, leave
 
-class AttendanceResponse(AttendanceMark):
+class AttendanceResponse(BaseModel):
     id: str
-    updated_at: str
+    employee_id: str
+    date: str
+    status: str
+    updated_at: Optional[str] = ""
 
 class PayrollRunRequest(BaseModel):
     month: str # YYYY-MM

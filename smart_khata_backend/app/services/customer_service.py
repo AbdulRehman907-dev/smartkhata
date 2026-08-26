@@ -3,6 +3,17 @@ from typing import List, Optional, Dict, Any
 from app.database import get_database
 from app.models.schemas import CustomerCreate, CustomerUpdate, CustomerPayment, utc_now_iso
 
+def _format_customer(c: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "id": str(c.get("_id", c.get("id", ""))),
+        "name": str(c.get("name", "Customer")),
+        "phone": str(c.get("phone", "") or ""),
+        "address": str(c.get("address", "") or ""),
+        "type": str(c.get("type", "regular") or "regular"),
+        "balance_due": float(c.get("balance_due", 0.0) or 0.0),
+        "updated_at": str(c.get("updated_at") or utc_now_iso()),
+    }
+
 async def create_customer(data: CustomerCreate) -> Dict[str, Any]:
     db = get_database()
     now = utc_now_iso()
@@ -11,23 +22,22 @@ async def create_customer(data: CustomerCreate) -> Dict[str, Any]:
     doc["balance_due"] = float(doc.pop("opening_balance", 0.0) or 0.0)
     doc["updated_at"] = now
     await db["customers"].insert_one(doc)
-    doc["id"] = doc["_id"]
-    return doc
+    return _format_customer(doc)
 
 async def get_customers() -> List[Dict[str, Any]]:
     db = get_database()
     cursor = db["customers"].find({})
     customers = await cursor.to_list(1000)
-    for c in customers:
-        c["id"] = c["_id"]
-    return customers
+    return [_format_customer(c) for c in customers]
 
 async def get_customer_by_id(customer_id: str) -> Optional[Dict[str, Any]]:
     db = get_database()
     doc = await db["customers"].find_one({"_id": customer_id})
-    if doc:
-        doc["id"] = doc["_id"]
-    return doc
+    if not doc:
+        doc = await db["customers"].find_one({"id": customer_id})
+    if not doc:
+        return None
+    return _format_customer(doc)
 
 async def record_customer_payment(data: CustomerPayment) -> Dict[str, Any]:
     db = get_database()
