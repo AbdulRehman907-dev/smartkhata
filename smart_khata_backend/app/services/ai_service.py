@@ -346,9 +346,10 @@ async def classify_and_execute_intent(text: str, context: Optional[Dict[str, Any
             except Exception as ex:
                 reply = f"⚠️ ادائیگی ریکارڈ نہیں ہو سکی: {str(ex)}"
         else:
+            entities["customer_found"] = False
             reply = (
-                f"✅ Rs. {amount:.0f} کی ادائیگی ریکارڈ کی گئی۔ "
-                "(کسٹمر نام پہچانا نہیں گیا — کھاتہ میں چیک کریں۔)"
+                f"⚠️ سسٹم میں اس نام کا کوئی کسٹمر نہیں ملا۔ "
+                f"Rs. {amount:.0f} کی وصولی درج کرنے کے لیے پہلے نیا کسٹمر شامل کریں یا صحیح رجسٹرڈ نام بولیں۔"
             )
 
     # ──────────────────────────────────────────────────────────────────────
