@@ -591,6 +591,7 @@ async def classify_and_execute_intent(text: str, context: Optional[Dict[str, Any
                     client_id=f"voice_sale_{len(order_line_items)}_{multi_line_items[0][0]['id'][:4]}"
                 ))
                 items_str = ', '.join(item_descriptions)
+                cust_info = f" ({matched_customer['name']} کے کھاتے میں درج)" if matched_customer and is_credit else ""
                 reply = f"✅ فروخت کا آرڈر مکمل ہوا{cust_info}! آئٹمز: {items_str}۔ کل بل: Rs. {final_total:.0f}۔"
             except Exception as ex:
                 reply = f"⚠️ آرڈر ریکارڈ نہیں ہو سکا: {str(ex)}"
