@@ -12,13 +12,18 @@ from app.models.schemas import utc_now_iso
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup seeding logic
-    from app.database import get_database
+    from app.database import get_database, set_mock_db
     from app.auth.security import hash_password
     import uuid
 
-    db = get_database()
-    # Seed Owner / Admin Account if not exists
-    existing_owner = await db["users"].find_one({"username": "admin"})
+    try:
+        db = get_database()
+        existing_owner = await db["users"].find_one({"username": "admin"})
+    except Exception as e:
+        print(f"Database connection error ({e}), switching to In-Memory store.")
+        set_mock_db(True)
+        db = get_database()
+        existing_owner = await db["users"].find_one({"username": "admin"})
     if not existing_owner:
         await db["users"].insert_one({
             "_id": str(uuid.uuid4()),

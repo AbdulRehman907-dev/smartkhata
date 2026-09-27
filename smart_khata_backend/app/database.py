@@ -188,14 +188,31 @@ def set_mock_db(flag: bool = True):
 
 def get_database():
     global _db_instance
-    if _use_mock_db or _db_instance is not None:
-        if _db_instance is None:
+    if _use_mock_db:
+        if _db_instance is None or not isinstance(_db_instance, InMemoryDatabase):
             _db_instance = InMemoryDatabase()
         return _db_instance
+
+    if _db_instance is not None:
+        return _db_instance
     
-    if HAS_MOTOR:
-        client = AsyncIOMotorClient(settings.MONGO_URI)
-        return client[settings.DATABASE_NAME]
+    # Check if a real remote MongoDB URI is provided
+    mongo_uri = getattr(settings, "MONGO_URI", "")
+    is_remote_mongo = (
+        mongo_uri
+        and HAS_MOTOR
+        and not mongo_uri.startswith("mongodb://localhost")
+        and not mongo_uri.startswith("mongodb://127.0.0.1")
+    )
+
+    if is_remote_mongo:
+        try:
+            client = AsyncIOMotorClient(mongo_uri, serverSelectionTimeoutMS=4000)
+            _db_instance = client[settings.DATABASE_NAME]
+            return _db_instance
+        except Exception:
+            _db_instance = InMemoryDatabase()
+            return _db_instance
     else:
         _db_instance = InMemoryDatabase()
         return _db_instance
