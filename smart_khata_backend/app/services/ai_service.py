@@ -19,24 +19,56 @@ _whisper_model = None
 # Urdu number word → digit mapping
 # ---------------------------------------------------------------------------
 _URDU_NUM_WORDS: Dict[str, float] = {
-    "aadha": 0.5, "paao": 0.25, "paav": 0.25,
-    "ek": 1, "do": 2, "teen": 3, "char": 4, "chaar": 4, "paanch": 5,
-    "panj": 5, "chhe": 6, "che": 6, "saat": 7, "aath": 8, "ath": 8,
-    "nau": 9, "das": 10, "gyarah": 11, "barah": 12, "terah": 13,
-    "chaudah": 14, "pandrah": 15, "pandreh": 15, "solah": 16,
-    "satrah": 17, "atharah": 18, "unnees": 19, "unveeh": 19, "bees": 20,
-    "veeh": 20, "tees": 30, "chalis": 40, "pachas": 50, "saath": 60,
-    "sattar": 70, "assi": 80, "nabbe": 90, "sau": 100, "so": 100,
-    "dhai": 250, "pach sau": 500, "panj sau": 500,
-    "hazar": 1000, "do hazar": 2000, "teen hazar": 3000,
-    "paanch hazar": 5000, "panj hazar": 5000, "das hazar": 10000,
-    "pandreh hazar": 15000, "bees hazar": 20000, "pachas hazar": 50000,
-    "lakh": 100000,
+    # Fractions & Weights
+    "aadha": 0.5, "adhaa": 0.5, "half": 0.5, "آدھا": 0.5, "ادھا": 0.5,
+    "paao": 0.25, "paav": 0.25, "quarter": 0.25, "پاؤ": 0.25, "پاو": 0.25,
+    "dhai": 2.5, "ڈھائی": 2.5, "ڈھائ": 2.5,
+    "dedh": 1.5, "ڈیڑھ": 1.5,
+    # 1 - 10
+    "ek": 1, "aik": 1, "ایک": 1, "۱": 1,
+    "do": 2, "دو": 2, "۲": 2,
+    "teen": 3, "تین": 3, "۳": 3,
+    "char": 4, "chaar": 4, "چار": 4, "۴": 4,
+    "paanch": 5, "panj": 5, "پانچ": 5, "پنج": 5, "۵": 5,
+    "chhe": 6, "che": 6, "چھ": 6, "۶": 6,
+    "saat": 7, "سات": 7, "۷": 7,
+    "aath": 8, "ath": 8, "آٹھ": 8, "اٹھ": 8, "۸": 8,
+    "nau": 9, "no": 9, "نو": 9, "۹": 9,
+    "das": 10, "دس": 10, "۱۰": 10,
+    # 11 - 20
+    "gyarah": 11, "گیارہ": 11,
+    "barah": 12, "بارہ": 12,
+    "terah": 13, "تیرہ": 13,
+    "chaudah": 14, "چودہ": 14,
+    "pandrah": 15, "pandreh": 15, "پندرہ": 15,
+    "solah": 16, "سولہ": 16,
+    "satrah": 17, "سترہ": 17,
+    "atharah": 18, "اٹھارہ": 18,
+    "unnees": 19, "unveeh": 19, "انیس": 19,
+    "bees": 20, "veeh": 20, "بیس": 20,
+    # Tens
+    "tees": 30, "تیس": 30,
+    "chalis": 40, "چالیس": 40,
+    "pachas": 50, "panjah": 50, "پچاس": 50,
+    "saath": 60, "ساٹھ": 60,
+    "sattar": 70, "ستر": 70,
+    "assi": 80, "اسی": 80,
+    "nabbe": 90, "نوے": 90,
+    "sau": 100, "so": 100, "سو": 100,
+    "dhai sau": 250, "ڈھائی سو": 250,
+    "pach sau": 500, "panj sau": 500, "پانچ سو": 500, "پنج سو": 500,
+    "hazar": 1000, "ہزار": 1000,
+    "do hazar": 2000, "دو ہزار": 2000,
+    "teen hazar": 3000, "تین ہزار": 3000,
+    "char hazar": 4000, "چار ہزار": 4000,
+    "paanch hazar": 5000, "panj hazar": 5000, "پانچ ہزار": 5000,
+    "das hazar": 10000, "دس ہزار": 10000,
+    "pandreh hazar": 15000, "پندرہ ہزار": 15000,
+    "bees hazar": 20000, "بیس ہزار": 20000,
+    "pachas hazar": 50000, "پچاس ہزار": 50000,
+    "lakh": 100000, "لاکھ": 100000,
 }
 
-# ---------------------------------------------------------------------------
-# Urdu / Punjabi Name Mapping (Urdu script -> English customer aliases)
-# ---------------------------------------------------------------------------
 URDU_NAME_MAP = {
     "علی": ["ali", "muhammad ali"],
     "محمد": ["muhammad", "mohammad", "mohd"],
@@ -60,34 +92,66 @@ URDU_NAME_MAP = {
 }
 
 def _extract_amount(text: str) -> float:
-    """Extract monetary amounts (handles digits and spoken Urdu words)."""
+    """Extract monetary amounts (handles digits and spoken Urdu words, especially followed by روپے/rupees)."""
     t = text.lower()
+    
+    # 1. Check for explicit money pattern like "500 روپے", "500 rs", "500 rupay"
+    money_match = re.search(r"(\d+(?:\.\d+)?)\s*(?:rupay|rupees|rs|روپے|روپیہ|روپیے|کی)", t)
+    if money_match:
+        return float(money_match.group(1))
+
+    # 2. Check compound Urdu phrases (e.g., 'پانچ سو', 'پانچ ہزار')
     for phrase in sorted(_URDU_NUM_WORDS.keys(), key=len, reverse=True):
-        if phrase in t:
-            val = _URDU_NUM_WORDS[phrase]
-            if val >= 10:  # amounts are usually 10+
-                return val
+        if phrase in t and _URDU_NUM_WORDS[phrase] >= 10:
+            return _URDU_NUM_WORDS[phrase]
+
     nums = [float(n) for n in re.findall(r"\d+(?:\.\d+)?", text)]
     for n in sorted(nums, reverse=True):
         if n >= 10:
             return n
     return nums[0] if nums else 500.0
 
+
 def _extract_quantity_from_segment(segment: str) -> float:
-    """Extract quantity from a specific product clause."""
+    """Extract quantity from a specific product clause, prioritizing unit-associated numbers."""
     s = segment.lower()
-    if "aadha" in s or "adhaa" in s or "half" in s:
+    if re.search(r"(?:\b|\s|^)(?:آدھا|ادھا|aadha|adhaa|half)(?:\b|\s|$)", s):
         return 0.5
-    if "paao" in s or "paav" in s:
+    if re.search(r"(?:\b|\s|^)(?:پاؤ|پاو|paao|paav|quarter)(?:\b|\s|$)", s):
         return 0.25
-    if "bori" in s or "bag" in s:
+    if re.search(r"(?:\b|\s|^)(?:bori|bag|بوری)(?:\b|\s|$)", s):
         nums = [float(n) for n in re.findall(r"\d+(?:\.\d+)?", s)]
         return (nums[0] if nums else 1.0) * 50.0  # 1 bori = 50 kg
+
+    # 1. Check for explicit unit pattern like "8 kilo", "اٹھ کلو", "8 kg", "2 litre"
+    unit_match = re.search(
+        r"(\d+(?:\.\d+)?|ایک|دو|تین|چار|پانچ|چھ|سات|آٹھ|اٹھ|نو|دس|گیارہ|بارہ|پندرہ|بیس|پچاس|aath|ath|do|teen|chaar|paanch)\s*(?:kilo|kg|کلو|کیلو|litre|لیٹر|liter|گرام|gram|پیکٹ|packet|دانہ|piece|درجن|dozen)",
+        s
+    )
+    if unit_match:
+        qty_str = unit_match.group(1).strip()
+        if qty_str in _URDU_NUM_WORDS:
+            return _URDU_NUM_WORDS[qty_str]
+        try:
+            return float(qty_str)
+        except ValueError:
+            pass
+
+    # 2. Check general Urdu number words (<= 100)
     for word, val in _URDU_NUM_WORDS.items():
-        if word in s and val <= 100:
-            return val
+        if val <= 100:
+            if re.search(rf"(?:\b|\s|^){re.escape(word)}(?:\b|\s|$)", s):
+                if not re.search(rf"{re.escape(word)}\s*(?:rupay|rupees|rs|روپے|روپیہ)", s):
+                    return val
+
+    # 3. Fallback to digits that are NOT money amounts
+    non_money_nums = re.findall(r"(\d+(?:\.\d+)?)(?!\s*(?:rupay|rupees|rs|روپے|روپیہ|روپیے|کی))", s)
+    if non_money_nums:
+        return float(non_money_nums[0])
+
     nums = [float(n) for n in re.findall(r"\d+(?:\.\d+)?", s)]
     return nums[0] if nums else 1.0
+
 
 def _match_single_product(segment: str, products: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     """Match product within a text snippet."""
@@ -99,17 +163,18 @@ def _match_single_product(segment: str, products: List[Dict[str, Any]]) -> Optio
         terms = [w.lower() for w in p_name.split() if len(w) >= 3]
         terms += [w.lower() for w in p_urdu.split() if len(w) >= 2]
 
-        if "rice" in p_name: terms += ["chawal", "چاول", "basmati", "چول"]
-        if "wheat" in p_name or "flour" in p_name or "atta" in p_name: terms += ["atta", "آٹا", "flour", "maida", "کنک"]
-        if "sugar" in p_name: terms += ["shakar", "cheeni", "چینی", "sugar", "کھنڈ"]
-        if "oil" in p_name: terms += ["tel", "تیل", "oil", "cooking oil"]
-        if "ghee" in p_name: terms += ["ghee", "گھی", "دیسی گھی", "گھیو"]
-        if "tea" in p_name or "patti" in p_name: terms += ["patti", "پتی", "chaye", "چائے"]
-        if "daal" in p_name or "lentil" in p_name: terms += ["daal", "دال", "chana", "moong"]
+        if "rice" in p_name or "چاول" in p_urdu: terms += ["chawal", "چاول", "basmati", "چول"]
+        if "wheat" in p_name or "flour" in p_name or "atta" in p_name or "آٹا" in p_urdu: terms += ["atta", "آٹا", "flour", "maida", "کنک"]
+        if "sugar" in p_name or "چینی" in p_urdu: terms += ["shakar", "cheeni", "چینی", "sugar", "کھنڈ"]
+        if "oil" in p_name or "تیل" in p_urdu: terms += ["tel", "تیل", "oil", "cooking oil"]
+        if "ghee" in p_name or "گھی" in p_urdu: terms += ["ghee", "گھی", "دیسی گھی", "گھیو"]
+        if "tea" in p_name or "patti" in p_name or "پتی" in p_urdu or "چائے" in p_urdu: terms += ["patti", "پتی", "chaye", "چائے"]
+        if "daal" in p_name or "lentil" in p_name or "دال" in p_urdu: terms += ["daal", "دال", "chana", "moong"]
 
         if p_name in s or (p_urdu and p_urdu in s) or any(tok in tokens for tok in terms):
             return p
     return None
+
 
 def _extract_multi_line_items(text: str, products: List[Dict[str, Any]]) -> List[Tuple[Dict[str, Any], float]]:
     """
@@ -133,7 +198,6 @@ def _extract_multi_line_items(text: str, products: List[Dict[str, Any]]) -> List
             line_items.append((p, qty))
             seen_ids.add(p["id"])
 
-    # Fallback to entire text if no delimiter split matched
     if not line_items:
         p = _match_single_product(text, products)
         if p:
@@ -143,9 +207,6 @@ def _extract_multi_line_items(text: str, products: List[Dict[str, Any]]) -> List
     return line_items
 
 
-# ---------------------------------------------------------------------------
-# Speech-to-Text (Whisper primary → SpeechRecognition fallback)
-# ---------------------------------------------------------------------------
 def transcribe_audio_file(audio_file_path: str) -> str:
     """ASR Pipeline: Whisper -> Google Speech -> Heuristics."""
     global _whisper_model
@@ -304,12 +365,12 @@ async def classify_and_execute_intent(text: str, context: Optional[Dict[str, Any
     whatsapp_url = None
     follow_up_prompt = None
 
-    # ──────────────────────────────────────────────────────────────────────
+        # ──────────────────────────────────────────────────────────────────────
     # 1. WHATSAPP_REMINDER (WhatsApp / SMS Khata Share)
     # ──────────────────────────────────────────────────────────────────────
     if _matches_any(text_lower, [
         "whatsapp", "واٹس ایپ", "واتس ایپ", "msg", "message", "reminder",
-        "parchi", "parcha", "hisaab bhej", "بل بھیجو", "میسج کرو"
+        "parchi", "parcha", "hisaab bhej", "بل بھیجو", "میسج کرو", "پرچی بھیجو"
     ]):
         intent = "whatsapp_reminder"
         if matched_customer:
@@ -343,12 +404,65 @@ async def classify_and_execute_intent(text: str, context: Optional[Dict[str, Any
             reply = "کسٹمر کا نام بتائیں جسے واٹس ایپ پر بقایہ کا میسج بھیجنا ہے۔"
 
     # ──────────────────────────────────────────────────────────────────────
-    # 2. RECORD_PAYMENT (Khata Payments)
+    # 2. ADD_EXPENSE (Utility, Rent, Daily Store Expenses)
+    # ──────────────────────────────────────────────────────────────────────
+    elif _matches_any(text_lower, [
+        "bijli", "electricity", "rent", "kiraya", "kharcha", "kharch", "expense",
+        "بل ادا", "بل بھرا", "بجلی کا بل", "دکان کا کرایہ", "کرایہ ادا", "خرچہ ہوا", "خرچ ہوا", "چائے کا خرچہ",
+        "بجلی", "کرایہ", "خرچہ", "خرچ"
+    ]) and not _matches_any(text_lower, ["becho", "sell", "udhaar", "خرید", "فروخت", "ادھار"]):
+        intent = "add_expense"
+        category = "misc"
+        if _matches_any(text_lower, ["bijli", "electricity", "utility", "بجلی"]):
+            category = "utilities"
+        elif _matches_any(text_lower, ["rent", "kiraya", "کرایہ"]):
+            category = "rent"
+        elif _matches_any(text_lower, ["salary", "tankhwah", "تنخواہ"]):
+            category = "salaries"
+
+        entities = {"amount": amount, "category": category, "payment_method": payment_method}
+        needs_confirmation = True
+        confirm_message = f"Rs. {amount:.0f} کا خرچ '{category.upper()}' میں ریکارڈ کریں؟"
+
+        if amount > 0:
+            try:
+                from app.services.cashbook_service import create_expense
+                await create_expense(ExpenseCreate(
+                    category=category,
+                    amount=amount,
+                    payment_method=payment_method,
+                    note=f"Voice AI: {raw_text}"
+                ))
+                reply = f"✅ Rs. {amount:.0f} کا خرچ '{category.upper()}' میں کامیابی سے درج کیا گیا۔"
+            except Exception as ex:
+                reply = f"⚠️ خرچ ریکارڈ نہیں ہو سکا: {str(ex)}"
+        else:
+            reply = "براہ کرم خرچ کی رقم بتائیں۔"
+
+    # ──────────────────────────────────────────────────────────────────────
+    # 3. CUSTOMER_BALANCE (Outstanding Khata Lookups)
+    # ──────────────────────────────────────────────────────────────────────
+    elif _matches_any(text_lower, [
+        "balance", "baki", "owe", "kitna dena", "kitna lena", "hisaab batao", "khata batao", "khata dikhao",
+        "بقایہ", "باقی", "حساب بتاؤ", "کھاتہ بتاؤ", "کھاتا بتاؤ", "کھاتے بتاؤ", "کھاتہ دکھاؤ", "کتنا کھاتہ", "کتنا باقی", "کتنا بقایہ", "کتنا دینا", "کتنا لینا"
+    ]) or (matched_customer and _matches_any(text_lower, ["kitna", "کتنا", "batao", "بتاؤ", "dikhao", "دکھاؤ", "balance", "hisaab", "حساب"]) and not _matches_any(text_lower, ["stock", "اسٹاک", "سٹاک", "bacha", "becho", "de do", "do", "udhaar", "ادھار", "بیچو", "دو", "دیے", "جمع"])):
+        intent = "customer_balance"
+        if matched_customer:
+            bal = matched_customer.get("balance_due", 0)
+            entities = {"person": matched_customer["name"], "balance": bal}
+            reply = f"{matched_customer['name']} کا کل بقایہ Rs. {bal:.0f} ہے۔"
+        else:
+            total = sum(c.get("balance_due", 0.0) for c in customers)
+            entities = {"total_pending": total}
+            reply = f"تمام کسٹمرز کا مجموعی بقایہ Rs. {total:.0f} ہے۔"
+
+    # ──────────────────────────────────────────────────────────────────────
+    # 4. RECORD_PAYMENT (Customer Khata Payment Received)
     # ──────────────────────────────────────────────────────────────────────
     elif _matches_any(text_lower, [
         "diye", "diya", "paid", "jamah", "payment", "vasool", "wapas",
-        "karwaye", "de diye", "ada kiye", "دیے", "جمع", "ادا", "وصول", "روپے دیے"
-    ]):
+        "karwaye", "de diye", "ada kiye", "دیے", "دیا", "جمع کروائے", "جمع کیے", "جمع کرو", "جمع", "ادا کیے", "وصول", "روپے دیے", "پیسے دیے"
+    ]) and not _matches_any(text_lower, ["bijli", "electricity", "rent", "kiraya", "بجلی", "کرایہ", "خرچہ"]):
         intent = "record_payment"
         cust_name = matched_customer["name"] if matched_customer else "Customer"
         entities = {"person": cust_name, "amount": amount, "payment_method": payment_method}
@@ -370,7 +484,7 @@ async def classify_and_execute_intent(text: str, context: Optional[Dict[str, Any
                     f"نیا بقایہ: Rs. {new_bal:.0f}۔"
                 )
             except Exception as ex:
-                reply = f"⚠️ ادائیگی ریکارڈ نہیں ہو سکی: {str(ex)}"
+                reply = f"⚠️ ادائیگی ریکارڈ نہیں ہو سکا: {str(ex)}"
         else:
             entities["customer_found"] = False
             reply = (
@@ -379,7 +493,7 @@ async def classify_and_execute_intent(text: str, context: Optional[Dict[str, Any
             )
 
     # ──────────────────────────────────────────────────────────────────────
-    # 3. ADD_PRODUCT (Voice Catalog Addition)
+    # 5. ADD_PRODUCT (Voice Catalog Addition)
     # ──────────────────────────────────────────────────────────────────────
     elif _matches_any(text_lower, [
         "naya item", "new product", "naya product", "add product", "shamil karo",
@@ -416,42 +530,55 @@ async def classify_and_execute_intent(text: str, context: Optional[Dict[str, Any
             reply = f"⚠️ پروڈکٹ شامل نہیں ہو سکا: {str(ex)}"
 
     # ──────────────────────────────────────────────────────────────────────
-    # 4. RECORD_SALE (Single & Multi-Item Sales / Udhaar)
+    # 6. RECORD_SALE / UDHAAR (Single & Multi-Item Sales / Credit Khata)
     # ──────────────────────────────────────────────────────────────────────
-    elif _matches_any(text_lower, [
-        "becho", "sell", "bech do", "sale", "bana do", "بیچو", "فروخت",
-        "de do", "دے دو", "کھاتے میں لکھو"
-    ]) or (multi_line_items and _matches_any(text_lower, ["order", "kilo", "kg", "bag", "piece", "litre", "bori", "packet", "udhaar", "credit"]) and not _matches_any(text_lower, ["stock", "اسٹاک", "سٹاک", "bacha", "naya", "add"])):
+    elif (
+        _matches_any(text_lower, [
+            "becho", "sell", "bech do", "sale", "bana do", "de do", "do", "likho", "dalo", "udhaar", "udhar",
+            "بیچو", "فروخت", "دے دو", "دو", "لکھو", "ڈالو", "ادھار دو", "ادھار", "ادھار دے دو",
+            "کھاتے میں لکھو", "کھاتے میں", "کھاتے پے", "کھاتے ڈالو", "بل بناؤ"
+        ])
+        or (
+            multi_line_items
+            and _matches_any(text_lower, ["order", "kilo", "kg", "bag", "piece", "litre", "bori", "packet", "کلو", "کیلو", "لیٹر", "بوری", "پیکٹ", "دانہ", "درجن", "udhaar", "credit", "روپے کی", "روپے کا", "کی چینی", "کا چاول", "کا آٹا", "کا گھی"])
+            and not _matches_any(text_lower, ["stock check", "اسٹاک چیک", "سٹاک چیک", "کتنا اسٹاک", "کتنا بچا", "بچا ہے", "کتنی بچی", "available", "check_stock"])
+        )
+    ):
         intent = "record_sale"
 
-        is_credit = _matches_any(text_lower, ["udhaar", "credit", "khata", "ادھار", "کھاتہ"])
+        is_credit = _matches_any(text_lower, ["udhaar", "udhar", "credit", "khata", "khatay", "ادھار", "کھاتہ", "کھاتے", "کھاتے میں"])
         sale_method = "credit" if is_credit else payment_method
 
         if multi_line_items:
             order_line_items = []
             item_descriptions = []
-            total_est = 0.0
+            calculated_total = 0.0
 
             for prod, qty in multi_line_items:
                 order_line_items.append(OrderLineItem(product_id=prod["id"], quantity=qty))
                 price = prod.get("selling_price") or prod.get("sale_price") or 0.0
                 line_total = price * qty
-                total_est += line_total
-                item_descriptions.append(f"{qty:.1f} {prod.get('unit', '')} {prod['name']} (Rs. {line_total:.0f})")
+                calculated_total += line_total
+                unit_str = prod.get("unit", "kg")
+                item_descriptions.append(f"{qty:.1f} {unit_str} {prod['name']}")
+
+            # If user explicitly stated an amount (e.g. '500 روپے کی اٹھ کلو چینی')
+            final_total = amount if (amount > 0 and _matches_any(text_lower, ["روپے", "rupay", "rs", "rupees"]) and len(multi_line_items) == 1) else (calculated_total if calculated_total > 0 else amount)
 
             cust_name = matched_customer["name"] if matched_customer else "Walk-in Customer"
             entities = {
                 "items": item_descriptions,
                 "customer": cust_name,
                 "payment_method": sale_method,
-                "estimated_total": total_est,
+                "estimated_total": final_total,
             }
 
             needs_confirmation = True
+            cust_label = f"{cust_name} کے کھاتے ({sale_method.upper()})" if is_credit else f"{cust_name} ({sale_method.upper()})"
             confirm_message = (
-                f"{cust_name} کے لیے آرڈر درج کریں؟\n"
-                f"{' + '.join(item_descriptions)}\n"
-                f"کل تخمینہ: Rs. {total_est:.0f} ({sale_method.upper()})"
+                f"{cust_label} میں {', '.join(item_descriptions)} (Rs. {final_total:.0f}) ادھار درج کریں؟"
+                if is_credit else
+                f"{cust_name} کے لیے {', '.join(item_descriptions)} (Rs. {final_total:.0f}) فروخت ریکارڈ کریں؟"
             )
 
             try:
@@ -459,58 +586,19 @@ async def classify_and_execute_intent(text: str, context: Optional[Dict[str, Any
                     line_items=order_line_items,
                     discount=0.0,
                     payment_method=sale_method,
-                    amount_paid_now=0.0 if is_credit else total_est,
+                    amount_paid_now=0.0 if is_credit else final_total,
                     customer_id=matched_customer["id"] if matched_customer else None,
                     client_id=f"voice_sale_{len(order_line_items)}_{multi_line_items[0][0]['id'][:4]}"
                 ))
-                cust_info = f" ({matched_customer['name']} کے کھاتے میں درج)" if matched_customer and is_credit else ""
-                reply = (
-                    f"✅ فروخت کا آرڈر مکمل ہوا{cust_info}!\n"
-                    f"آئٹمز: {', '.join(item_descriptions)}۔\n"
-                    f"کل بل: Rs. {order_res['total_amount']:.0f}۔"
-                )
+                items_str = ', '.join(item_descriptions)
+                reply = f"✅ فروخت کا آرڈر مکمل ہوا{cust_info}! آئٹمز: {items_str}۔ کل بل: Rs. {final_total:.0f}۔"
             except Exception as ex:
                 reply = f"⚠️ آرڈر ریکارڈ نہیں ہو سکا: {str(ex)}"
         else:
             reply = "براہ کرم پروڈکٹ کا نام اور مقدار بتائیں تاکہ فروخت درج ہو سکے۔"
 
     # ──────────────────────────────────────────────────────────────────────
-    # 4. ADD_EXPENSE (Utility, Rent, Daily Store Expenses)
-    # ──────────────────────────────────────────────────────────────────────
-    elif _matches_any(text_lower, [
-        "expense", "bill", "bijli", "electricity", "rent", "kiraya",
-        "kharcha", "kharch", "بل", "کرایہ", "خرچہ", "بجلی", "چائے"
-    ]):
-        intent = "add_expense"
-        category = "misc"
-        if _matches_any(text_lower, ["bijli", "electricity", "utility", "بجلی"]):
-            category = "utilities"
-        elif _matches_any(text_lower, ["rent", "kiraya", "کرایہ"]):
-            category = "rent"
-        elif _matches_any(text_lower, ["salary", "tankhwah", "تنخواہ"]):
-            category = "salaries"
-
-        entities = {"amount": amount, "category": category, "payment_method": payment_method}
-        needs_confirmation = True
-        confirm_message = f"Rs. {amount:.0f} کا خرچ '{category.upper()}' میں ریکارڈ کریں؟"
-
-        if amount > 0:
-            try:
-                from app.services.cashbook_service import create_expense
-                await create_expense(ExpenseCreate(
-                    category=category,
-                    amount=amount,
-                    payment_method=payment_method,
-                    note=f"Voice AI: {raw_text}"
-                ))
-                reply = f"✅ Rs. {amount:.0f} کا خرچ '{category.upper()}' میں کامیابی سے درج کیا گیا۔"
-            except Exception as ex:
-                reply = f"⚠️ خرچ ریکارڈ نہیں ہو سکا: {str(ex)}"
-        else:
-            reply = "براہ کرم خرچ کی رقم بتائیں۔"
-
-    # ──────────────────────────────────────────────────────────────────────
-    # 5. RESTOCK_LIST (Predictive AI Reorder Recommendations)
+    # 7. RESTOCK_LIST (Predictive AI Reorder Recommendations)
     # ──────────────────────────────────────────────────────────────────────
     elif _matches_any(text_lower, [
         "restock", "reorder", "mangalwao", "khatam hone", "khatam",
@@ -533,29 +621,12 @@ async def classify_and_execute_intent(text: str, context: Optional[Dict[str, Any
             reply = f"⚠️ فورکاسٹ دستیاب نہیں: {str(ex)}"
 
     # ──────────────────────────────────────────────────────────────────────
-    # 6. CUSTOMER_BALANCE (Outstanding Khata Lookups)
-    # ──────────────────────────────────────────────────────────────────────
-    elif _matches_any(text_lower, [
-        "balance", "baki", "owe", "kitna dena", "hisaab", "khata", "khatay", "khate",
-        "بقایہ", "باقی", "حساب", "کھاتہ", "کھاتا", "کھاتے", "کتنا دینا", "کتنا لینا", "کھاتے میں", "کھاتا بتاؤ"
-    ]) or (matched_customer and _matches_any(text_lower, ["kitna", "کتنا", "batao", "بتاؤ", "dikhao", "دکھاؤ", "balance", "khata", "کھاتا", "کھاتہ"]) and not _matches_any(text_lower, ["stock", "اسٹاک", "سٹاک", "bacha"])):
-        intent = "customer_balance"
-        if matched_customer:
-            bal = matched_customer.get("balance_due", 0)
-            entities = {"person": matched_customer["name"], "balance": bal}
-            reply = f"{matched_customer['name']} کا کل بقایہ Rs. {bal:.0f} ہے۔"
-        else:
-            total = sum(c.get("balance_due", 0.0) for c in customers)
-            entities = {"total_pending": total}
-            reply = f"تمام کسٹمرز کا مجموعی بقایہ Rs. {total:.0f} ہے۔"
-
-    # ──────────────────────────────────────────────────────────────────────
-    # 7. CHECK_STOCK (Product Quantity & Units)
+    # 8. CHECK_STOCK (Product Quantity & Units)
     # ──────────────────────────────────────────────────────────────────────
     elif _matches_any(text_lower, [
         "stock", "available", "bacha", "bache", "kitna stock", "اسٹاک", "سٹاک",
-        "check_stock", "مال کنا", "بچا ہے", "کتنا بچا"
-    ]) or (multi_line_items and not _matches_any(text_lower, ["becho", "sell", "de do", "udhaar", "diye", "paid", "khata", "کھاتہ", "کھاتا", "کھاتے", "hisaab", "حساب"])):
+        "check_stock", "مال کتنا", "بچا ہے", "کتنا بچا", "اسٹاک چیک", "سٹاک چیک", "کتنا ہے", "کتنی ہے", "موجود ہے"
+    ]) or (multi_line_items and not _matches_any(text_lower, ["becho", "sell", "de do", "do", "udhaar", "diye", "paid", "khata", "کھاتہ", "کھاتا", "کھاتے", "hisaab", "حساب", "ادھار", "بیچو", "دو"])):
         intent = "check_stock"
         if multi_line_items:
             stock_reports = []
@@ -571,7 +642,6 @@ async def classify_and_execute_intent(text: str, context: Optional[Dict[str, Any
             low = [p for p in products if p.get("current_stock", 0) <= p.get("low_stock_threshold", 5)]
             entities = {"total_products": len(products), "low_stock_count": len(low)}
             reply = f"کل {len(products)} پروڈکٹس۔ {len(low)} پروڈکٹس کا اسٹاک کم ہے۔"
-
 
     # ──────────────────────────────────────────────────────────────────────
     # 9. ADD_STOCK (Receiving Goods)
@@ -649,58 +719,25 @@ async def classify_and_execute_intent(text: str, context: Optional[Dict[str, Any
             ))
             reply = f"✅ {target} کو Rs. {amount:.0f} تنخواہ ادا کی گئی۔"
         except Exception as ex:
-            reply = f"⚠️ تنخواہ ادائیگی ناکام: {str(ex)}"
+            reply = f"⚠️ تنخواہ ریکارڈ نہیں ہو سکی: {str(ex)}"
 
     # ──────────────────────────────────────────────────────────────────────
-    # 12. TODAY_REVENUE (Daily Financial Metrics)
-    # ──────────────────────────────────────────────────────────────────────
-    elif _matches_any(text_lower, [
-        "revenue", "kamai", "profit", "faida", "aaj ki", "today",
-        "آج کی کمائی", "منافع", "ریونیو", "کل بکری", "bikri", "کل کمائی"
-    ]):
-        intent = "today_revenue"
-        try:
-            metrics = await get_dashboard_metrics()
-            rev = metrics.get("today_revenue", 0)
-            profit = metrics.get("today_profit", 0)
-            orders_cnt = metrics.get("order_count", 0)
-            entities = {"today_revenue": rev, "today_profit": profit, "order_count": orders_cnt}
-            reply = (
-                f"آج کی کمائی: Rs. {rev:.0f}۔ "
-                f"منافع: Rs. {profit:.0f}۔ "
-                f"کل آرڈرز: {orders_cnt}۔"
-            )
-        except Exception as ex:
-            reply = f"⚠️ ڈیٹا نہیں مل سکا: {str(ex)}"
-
-    # ──────────────────────────────────────────────────────────────────────
-    # 13. GENERATE_BILL (PDF Invoices)
-    # ──────────────────────────────────────────────────────────────────────
-    elif _matches_any(text_lower, [
-        "generate_bill", "bill", "invoice", "receipt", "parcha", "rasid",
-        "بل بناؤ", "رسید", "انوائس"
-    ]):
-        intent = "generate_bill"
-        target = matched_customer["name"] if matched_customer else "Customer"
-        entities = {"person": target}
-        reply = f"📄 {target} کا بل / انوائس PDF تیار ہے۔ رپورٹس سیکشن میں ڈاؤن لوڈ کریں۔"
-
-    # ──────────────────────────────────────────────────────────────────────
-    # UNKNOWN
+    # 12. UNKNOWN INTENT (Helpful Contextual Fallback)
     # ──────────────────────────────────────────────────────────────────────
     else:
         intent = "unknown"
+        entities = {"raw_text": raw_text}
         reply = (
-            "کمانڈ سمجھ نہیں آئی۔ مثال:\n"
-            "• 'Ali ko 2 kilo chawal aur 1 litre tel udhaar becho'\n"
-            "• 'Muhammad Ali ne 500 rupay diye'\n"
-            "• 'Ali ko WhatsApp per bill bhej do'\n"
-            "• 'Chawal ka stock check karo'"
+            "⚠️ کمانڈ سمجھ نہیں آئی۔ آپ یہ بول سکتے ہیں:\n"
+            "• 'Ali ne 500 rupay diye' (ادائیگی)\n"
+            "• 'Tariq ko 2 kilo chawal becho' (فروخت)\n"
+            "• 'Chawal ka stock check karo' (اسٹاک)\n"
+            "• 'Ali ka khata batao' (بقایہ)\n"
+            "• 'Bijli ka bil 2000 rupay' (خرچہ)"
         )
 
-
     return {
-        "intent": intent,
+        "intent": intent.upper(),
         "entities": entities,
         "reply": reply,
         "raw_text": raw_text,
@@ -709,3 +746,4 @@ async def classify_and_execute_intent(text: str, context: Optional[Dict[str, Any
         "whatsapp_url": whatsapp_url,
         "follow_up_prompt": follow_up_prompt,
     }
+

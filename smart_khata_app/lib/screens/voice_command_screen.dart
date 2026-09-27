@@ -271,7 +271,7 @@ class _VoiceCommandScreenState extends State<VoiceCommandScreen>
       }
     }
 
-    if (_matchesAny(t, ['diye', 'diya', 'paid', 'jamah', 'payment', 'vasool', 'wapas', 'karwaye', 'de diye', 'ada kiye', 'دیے', 'جمع', 'ادا'])) {
+    if (_matchesAny(t, ['diye', 'diya', 'paid', 'jamah', 'payment', 'vasool', 'wapas', 'karwaye', 'de diye', 'ada kiye', 'دیے', 'جمع', 'ادا', 'وصول'])) {
       return {
         'intent': 'RECORD_PAYMENT',
         'reply': 'ادائیگی Rs. $numVal ریکارڈ کی گئی۔ (آف لائن موڈ)',
@@ -282,18 +282,21 @@ class _VoiceCommandScreenState extends State<VoiceCommandScreen>
       };
     }
 
-    if (_matchesAny(t, ['becho', 'sell', 'sale', 'bech do', 'order', 'udhaar', 'credit', 'khata mein', 'بیچو', 'فروخت'])) {
+    if (_matchesAny(t, [
+      'becho', 'sell', 'sale', 'bech do', 'order', 'udhaar', 'udhar', 'credit', 'khata',
+      'بیچو', 'فروخت', 'ادھار', 'دے دو', 'دو', 'کھاتے', 'کھاتہ'
+    ])) {
       return {
         'intent': 'RECORD_SALE',
-        'reply': 'فروخت ریکارڈ کی گئی۔ مقدار: $numVal (آف لائن موڈ)',
-        'entities': {'quantity': numVal},
+        'reply': 'فروخت / ادھار ریکارڈ کیا گیا۔ رقم: Rs. $numVal (آف لائن موڈ)',
+        'entities': {'amount': numVal},
         'raw_text': text,
         'needs_confirmation': true,
-        'confirm_message': '$numVal اکائی کی فروخت ریکارڈ کریں؟',
+        'confirm_message': 'Rs. ${numVal.toStringAsFixed(0)} کی فروخت / ادھار ریکارڈ کریں؟',
       };
     }
 
-    if (_matchesAny(t, ['stock', 'available', 'kitna hai', 'اسٹاک', 'چاول', 'آٹا', 'چینی', 'rice', 'flour', 'sugar', 'oil', 'ghee'])) {
+    if (_matchesAny(t, ['stock', 'available', 'kitna hai', 'اسٹاک', 'سٹاک', 'کتنا بچا', 'بچا ہے'])) {
       return {
         'intent': 'CHECK_STOCK',
         'reply': 'باسمتی چاول: 50 کلو۔ آٹا: 100 کلو۔ (آف لائن SQLite)',
