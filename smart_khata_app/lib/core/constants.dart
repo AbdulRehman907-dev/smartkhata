@@ -4,8 +4,8 @@ class AppConstants {
   static const String appName = 'Smart Khata';
 
   // ── API Base URL ───────────────────────────────────────────────────────────
-  // Default cloud live production URL
-  static const String defaultCloudUrl = 'https://smartkhata-production.up.railway.app/api';
+  // Default cloud live production URL (Render Free Forever)
+  static const String defaultCloudUrl = 'https://smartkhata-api-fyp.onrender.com/api';
   static String? customServerUrl;
 
   static String get baseUrl {

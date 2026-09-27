@@ -30,7 +30,12 @@ class ApiClient {
     final customUrl = prefs.getString(AppConstants.customServerUrlKey);
     final urls = <String>[];
     if (customUrl != null && customUrl.trim().isNotEmpty) {
-      urls.add(customUrl.trim());
+      if (customUrl.contains('railway.app') || customUrl.contains('railway.internal')) {
+        await prefs.remove(AppConstants.customServerUrlKey);
+        AppConstants.customServerUrl = null;
+      } else {
+        urls.add(customUrl.trim());
+      }
     }
     if (!urls.contains(AppConstants.baseUrl)) {
       urls.add(AppConstants.baseUrl);
@@ -43,6 +48,8 @@ class ApiClient {
     return urls;
   }
 
+  static const Duration _requestTimeout = Duration(seconds: 35);
+
   // ── GET ───────────────────────────────────────────────────────────────────
   Future<dynamic> get(String endpoint) async {
     final headers = await _getHeaders();
@@ -52,12 +59,17 @@ class ApiClient {
       try {
         final res = await http
             .get(Uri.parse('$base$endpoint'), headers: headers)
-            .timeout(const Duration(seconds: 8));
+            .timeout(_requestTimeout);
         return _handleResponse(res);
       } on SocketException catch (_) {
         continue;
       } on TimeoutException catch (_) {
         continue;
+      } on HttpException catch (e) {
+        if (e.message.contains('502') || e.message.contains('503') || e.message.contains('504')) {
+          continue;
+        }
+        rethrow;
       } catch (e) {
         rethrow;
       }
@@ -79,12 +91,17 @@ class ApiClient {
               headers: headers,
               body: jsonEncode(body),
             )
-            .timeout(const Duration(seconds: 10));
+            .timeout(_requestTimeout);
         return _handleResponse(res);
       } on SocketException catch (_) {
         continue;
       } on TimeoutException catch (_) {
         continue;
+      } on HttpException catch (e) {
+        if (e.message.contains('502') || e.message.contains('503') || e.message.contains('504')) {
+          continue;
+        }
+        rethrow;
       } catch (e) {
         rethrow;
       }
@@ -105,12 +122,17 @@ class ApiClient {
               headers: headers,
               body: jsonEncode(body),
             )
-            .timeout(const Duration(seconds: 10));
+            .timeout(_requestTimeout);
         return _handleResponse(res);
       } on SocketException catch (_) {
         continue;
       } on TimeoutException catch (_) {
         continue;
+      } on HttpException catch (e) {
+        if (e.message.contains('502') || e.message.contains('503') || e.message.contains('504')) {
+          continue;
+        }
+        rethrow;
       } catch (e) {
         rethrow;
       }
@@ -127,12 +149,17 @@ class ApiClient {
       try {
         final res = await http
             .delete(Uri.parse('$base$endpoint'), headers: headers)
-            .timeout(const Duration(seconds: 8));
+            .timeout(_requestTimeout);
         return _handleResponse(res);
       } on SocketException catch (_) {
         continue;
       } on TimeoutException catch (_) {
         continue;
+      } on HttpException catch (e) {
+        if (e.message.contains('502') || e.message.contains('503') || e.message.contains('504')) {
+          continue;
+        }
+        rethrow;
       } catch (e) {
         rethrow;
       }
