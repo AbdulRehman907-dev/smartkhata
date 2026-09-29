@@ -252,8 +252,8 @@ class _VoiceCommandScreenState extends State<VoiceCommandScreen>
     double numVal = nums.isNotEmpty ? nums.first : 500.0;
 
     const urduNums = {
-      'ek': 1, 'do': 2, 'teen': 3, 'char': 4, 'paanch': 5,
-      'chhe': 6, 'saat': 7, 'aath': 8, 'nau': 9, 'das': 10,
+      'ek': 1, 'aik': 1, 'do': 2, 'teen': 3, 'char': 4, 'paanch': 5,
+      'chhe': 6, 'saat': 7, 'aath': 8, 'ath': 8, 'nau': 9, 'das': 10,
       'bis': 20, 'tees': 30, 'chalis': 40, 'pachas': 50,
       'sau': 100, 'pach sau': 500, 'hazar': 1000,
       'teen hazar': 3000, 'paanch hazar': 5000, 'das hazar': 10000,
@@ -271,64 +271,149 @@ class _VoiceCommandScreenState extends State<VoiceCommandScreen>
       }
     }
 
-    if (_matchesAny(t, ['diye', 'diya', 'paid', 'jamah', 'payment', 'vasool', 'wapas', 'karwaye', 'de diye', 'ada kiye', 'دیے', 'جمع', 'ادا', 'وصول'])) {
-      return {
-        'intent': 'RECORD_PAYMENT',
-        'reply': 'ادائیگی Rs. $numVal ریکارڈ کی گئی۔ (آف لائن موڈ)',
-        'entities': {'amount': numVal},
-        'raw_text': text,
-        'needs_confirmation': true,
-        'confirm_message': 'Rs. ${numVal.toStringAsFixed(0)} کی ادائیگی ریکارڈ کریں؟',
-      };
-    }
-
-    if (_matchesAny(t, [
-      'becho', 'sell', 'sale', 'bech do', 'order', 'udhaar', 'udhar', 'credit', 'khata',
-      'بیچو', 'فروخت', 'ادھار', 'دے دو', 'دو', 'کھاتے', 'کھاتہ'
-    ])) {
-      return {
-        'intent': 'RECORD_SALE',
-        'reply': 'فروخت / ادھار ریکارڈ کیا گیا۔ رقم: Rs. $numVal (آف لائن موڈ)',
-        'entities': {'amount': numVal},
-        'raw_text': text,
-        'needs_confirmation': true,
-        'confirm_message': 'Rs. ${numVal.toStringAsFixed(0)} کی فروخت / ادھار ریکارڈ کریں؟',
-      };
-    }
-
-    if (_matchesAny(t, ['stock', 'available', 'kitna hai', 'اسٹاک', 'سٹاک', 'کتنا بچا', 'بچا ہے'])) {
-      return {
-        'intent': 'CHECK_STOCK',
-        'reply': 'باسمتی چاول: 50 کلو۔ آٹا: 100 کلو۔ (آف لائن SQLite)',
-        'entities': {},
-        'raw_text': text,
-      };
-    }
-
-    if (_matchesAny(t, ['balance', 'baki', 'owe', 'kitna dena', 'hisaab', 'کتنا', 'باقی', 'حساب'])) {
-      return {
-        'intent': 'CUSTOMER_BALANCE',
-        'reply': 'محمد علی کا باقی Rs. 1,200 ہے۔ (آف لائن SQLite)',
-        'entities': {},
-        'raw_text': text,
-      };
-    }
-
-    if (_matchesAny(t, ['whatsapp', 'واٹس ایپ', 'بل بھیجو'])) {
+    // 1. WhatsApp Reminder
+    if (_matchesAny(t, ['whatsapp', 'واٹس ایپ', 'بل بھیجو', 'reminder', 'میسج کرو'])) {
       const phone = '923001234567';
-      final msg = Uri.encodeComponent('احمد جنرل سٹور: محمد علی صاحب، آپ کا بقایہ Rs. 1200 ہے۔');
+      final msg = Uri.encodeComponent('احمد جنرل سٹور: محترم کسٹمر، آپ کے کھاتے کا بقایہ Rs. $numVal ہے۔');
       return {
         'intent': 'WHATSAPP_REMINDER',
         'reply': 'محمد علی کا واٹس ایپ بل تیار ہے۔',
-        'entities': {'person': 'Muhammad Ali'},
+        'entities': {'person': 'Muhammad Ali', 'balance': numVal},
         'whatsapp_url': 'https://wa.me/$phone?text=$msg',
         'raw_text': text,
       };
     }
 
+    // 2. Daily Summary
+    if (_matchesAny(t, ['aaj ki sale', 'aaj ka hisaab', 'aaj ka munafa', 'today sale', 'آج کی سیل', 'آج کا حساب', 'آج کا منافع', 'کل سیل'])) {
+      return {
+        'intent': 'DAILY_SUMMARY',
+        'reply': '📊 آج کا خلاصہ: کل فروخت Rs. 14,500 (12 آرڈرز)۔ منافع: Rs. 2,800۔ کیش: Rs. 9,500۔ بقایہ کھاتہ: Rs. 5,000۔',
+        'entities': {'today_revenue': 14500, 'today_profit': 2800},
+        'raw_text': text,
+      };
+    }
+
+    // 3. Supplier Payment
+    if (_matchesAny(t, ['supplier', 'dealer', 'wholesaler', 'سپلائر', 'ڈیلر', 'مال والے']) &&
+        _matchesAny(t, ['diye', 'paid', 'ada', 'دیے', 'ادا'])) {
+      return {
+        'intent': 'SUPPLIER_PAYMENT',
+        'reply': 'سپلائر کو Rs. $numVal کی ادائیگی درج کی گئی۔ (آف لائن)',
+        'entities': {'supplier': 'Wholesale Dealer', 'amount': numVal},
+        'raw_text': text,
+        'needs_confirmation': true,
+        'confirm_message': 'سپلائر کو Rs. ${numVal.toStringAsFixed(0)} کی ادائیگی درج کریں؟',
+      };
+    }
+
+    // 4. Store Expense
+    if (_matchesAny(t, ['bijli', 'electricity', 'rent', 'kiraya', 'kharcha', 'expense', 'petrol', 'chai', 'بل ادا', 'بجلی کا بل', 'کرایہ', 'خرچہ']) &&
+        !_matchesAny(t, ['becho', 'sell', 'udhaar', 'ادھار', 'بیچو'])) {
+      return {
+        'intent': 'ADD_EXPENSE',
+        'reply': 'Rs. $numVal کا دکان خرچ ریکارڈ کیا گیا۔ (آف لائن)',
+        'entities': {'amount': numVal, 'category': 'utilities'},
+        'raw_text': text,
+        'needs_confirmation': true,
+        'confirm_message': 'Rs. ${numVal.toStringAsFixed(0)} کا خرچ درج کریں؟',
+      };
+    }
+
+    // 5. Customer Balance
+    if (_matchesAny(t, ['balance', 'baki', 'owe', 'kitna dena', 'hisaab batao', 'khata batao', 'بقایہ', 'باقی', 'حساب', 'کھاتہ'])) {
+      return {
+        'intent': 'CUSTOMER_BALANCE',
+        'reply': 'محمد علی کا کل بقایہ Rs. 1,200 ہے۔ (آف لائن)',
+        'entities': {'person': 'Muhammad Ali', 'balance': 1200},
+        'raw_text': text,
+      };
+    }
+
+    // 6. Record Payment
+    if (_matchesAny(t, ['diye', 'diya', 'paid', 'jamah', 'payment', 'vasool', 'wapas', 'karwaye', 'de diye', 'ada kiye', 'دیے', 'جمع', 'ادا', 'وصول'])) {
+      return {
+        'intent': 'RECORD_PAYMENT',
+        'reply': '✅ ادائیگی Rs. $numVal محمد علی کے لیے ریکارڈ کی گئی۔ (آف لائن)',
+        'entities': {'person': 'Muhammad Ali', 'amount': numVal},
+        'raw_text': text,
+        'needs_confirmation': true,
+        'confirm_message': 'محمد علی سے Rs. ${numVal.toStringAsFixed(0)} کی وصولی ریکارڈ کریں؟',
+      };
+    }
+
+    // 7. Add Customer
+    if (_matchesAny(t, ['naya customer', 'new customer', 'naya khata', 'نیا کسٹمر', 'نیا گاہک', 'نیا کھاتہ'])) {
+      return {
+        'intent': 'ADD_CUSTOMER',
+        'reply': '✅ نیا کسٹمر شامل کر دیا گیا۔',
+        'entities': {'name': 'New Customer', 'phone': '03001234567'},
+        'raw_text': text,
+        'needs_confirmation': true,
+        'confirm_message': 'نیا کسٹمر سسٹم میں شامل کریں؟',
+      };
+    }
+
+    // 8. Restock List
+    if (_matchesAny(t, ['restock', 'reorder', 'mangalwao', 'khatam', 'منگواؤ', 'ختم ہونے والا', 'اسٹاک کم'])) {
+      return {
+        'intent': 'RESTOCK_LIST',
+        'reply': 'دوبارہ منگوائیں: باسمتی چاول (15 کلو)، حبیب کوکنگ آئل (10 لیٹر)۔',
+        'entities': {},
+        'raw_text': text,
+      };
+    }
+
+    // 9. Check Stock
+    if (_matchesAny(t, ['stock', 'available', 'kitna stock', 'اسٹاک', 'سٹاک', 'کتنا بچا', 'بچا ہے'])) {
+      return {
+        'intent': 'CHECK_STOCK',
+        'reply': 'باسمتی چاول: 50.0 کلو (✅ کافی اسٹاک)۔ آٹا: 100 کلو۔',
+        'entities': {'products': ['Basmati Rice', 'Flour']},
+        'raw_text': text,
+      };
+    }
+
+    // 10. Staff Attendance
+    if (_matchesAny(t, ['present', 'absent', 'hazir', 'hazri', 'حاضر', 'غیر حاضر', 'حاضری'])) {
+      return {
+        'intent': 'MARK_ATTENDANCE',
+        'reply': '✅ ملازم کی حاضری درج ہو گئی۔ (آف لائن)',
+        'entities': {'person': 'Bilal Helper', 'status': 'present'},
+        'raw_text': text,
+      };
+    }
+
+    // 11. Staff Salary
+    if (_matchesAny(t, ['salary', 'tankhwah', 'تنخواہ', 'دیہاڑی'])) {
+      return {
+        'intent': 'PAY_SALARY',
+        'reply': '✅ ملازم کو Rs. $numVal تنخواہ ادا کی گئی۔ (آف لائن)',
+        'entities': {'person': 'Bilal Helper', 'amount': numVal},
+        'raw_text': text,
+        'needs_confirmation': true,
+        'confirm_message': 'ملازم کو Rs. ${numVal.toStringAsFixed(0)} تنخواہ ادا کریں؟',
+      };
+    }
+
+    // 12. Record Sale / Udhaar
+    if (_matchesAny(t, [
+      'becho', 'sell', 'sale', 'bech do', 'order', 'udhaar', 'udhar', 'credit',
+      'بیچو', 'فروخت', 'ادھار', 'دے دو', 'دو', 'کھاتے میں'
+    ])) {
+      return {
+        'intent': 'RECORD_SALE',
+        'reply': '✅ فروخت / ادھار کا آرڈر مکمل ہوا! بل: Rs. $numVal (آف لائن)',
+        'entities': {'items': ['2 kg Basmati Rice'], 'customer': 'Muhammad Ali', 'amount': numVal},
+        'raw_text': text,
+        'needs_confirmation': true,
+        'confirm_message': 'محمد علی کے کھاتے میں Rs. ${numVal.toStringAsFixed(0)} ادھار سیل درج کریں؟',
+      };
+    }
+
     return {
       'intent': 'UNKNOWN',
-      'reply': 'کمانڈ سمجھ نہیں آئی۔ مثال: "Ali ko 2 kilo chawal becho" یا "Ali ne 500 rupay diye"',
+      'reply': 'کمانڈ سمجھ نہیں آئی۔ مثال: "Ali ko 2 kilo chawal udhaar becho" یا "Ali ne 500 rupay diye"',
       'entities': {},
       'raw_text': text,
     };
@@ -341,6 +426,22 @@ class _VoiceCommandScreenState extends State<VoiceCommandScreen>
   Future<void> _sendTextCommand([String? overrideText]) async {
     final text = (overrideText ?? _promptController.text).trim();
     if (text.isEmpty) return;
+
+    final lower = text.toLowerCase();
+
+    // Hands-free voice confirmation check
+    if (_awaitingConfirmation && _pendingConfirmation != null) {
+      final isConfirm = _matchesAny(lower, ['haan', 'ji haan', 'yes', 'theek hai', 'record karo', 'karo', 'confirm', 'ہاں', 'جی ہاں', 'ریکارڈ کرو', 'ٹھیک ہے', 'کرو', 'کر دو']);
+      final isCancel = _matchesAny(lower, ['nahi', 'no', 'cancel', 'mansookh', 'roko', 'mitao', 'نہیں', 'منسوخ', 'روکو', 'منسوخ کرو']);
+
+      if (isConfirm) {
+        _confirmAction();
+        return;
+      } else if (isCancel) {
+        _cancelAction();
+        return;
+      }
+    }
 
     setState(() {
       _isProcessing = true;
@@ -365,7 +466,7 @@ class _VoiceCommandScreenState extends State<VoiceCommandScreen>
     // Handle intents that need confirmation before executing
     final needsConfirm = res['needs_confirmation'] == true;
     final intent = (res['intent'] as String? ?? '').toUpperCase();
-    final isDestructive = ['RECORD_PAYMENT', 'RECORD_SALE', 'ADD_EXPENSE', 'ADD_STOCK', 'MARK_ATTENDANCE'].contains(intent);
+    final isDestructive = ['RECORD_PAYMENT', 'RECORD_SALE', 'ADD_EXPENSE', 'ADD_STOCK', 'MARK_ATTENDANCE', 'SUPPLIER_PAYMENT', 'PAY_SALARY'].contains(intent);
 
     if (needsConfirm || isDestructive) {
       setState(() {
@@ -663,42 +764,128 @@ class _VoiceCommandScreenState extends State<VoiceCommandScreen>
 
   // ── Quick Commands ────────────────────────────────────────────────────────
   Widget _buildQuickCommands() {
-    final cmds = [
-      'چاول کا اسٹاک چیک کرو',
-      'Muhammad Ali ne 500 rupay diye',
-      'Ali ko 2 kilo chawal aur 1 litre tel udhaar becho',
-      'Ali ko WhatsApp per bill bhej do',
-      'Bijli ka bill 3000 rupay',
-      'Ali Cashier ki aaj hazari lagao',
+    final categories = [
+      {
+        'label': '🛒 سیل و ادھار',
+        'cmds': [
+          'Ali ko 2 kilo chawal udhaar becho',
+          'Tariq ko 5 kilo cheeni aur 1 litre tel becho',
+        ]
+      },
+      {
+        'label': '💵 وصولی و ادائیگی',
+        'cmds': [
+          'Muhammad Ali ne 500 rupay jamah karwaye',
+          'Supplier Farooq ko 5000 rupay diye',
+        ]
+      },
+      {
+        'label': '📦 اسٹاک و انوینٹری',
+        'cmds': [
+          'چاول کا اسٹاک چیک کرو',
+          'Konsa maal khatam hone wala hai',
+          'Chawal 50 kilo stock add karo',
+        ]
+      },
+      {
+        'label': '👤 کھاتہ و واٹس ایپ',
+        'cmds': [
+          'Muhammad Ali ka khata batao',
+          'Ali ko WhatsApp per bill bhej do',
+          'Naya customer Tariq 03001234567 shamil karo',
+        ]
+      },
+      {
+        'label': '📊 خلاصہ و خرچہ',
+        'cmds': [
+          'Aaj ki sale kitni hui',
+          'Bijli ka bill 3000 rupay ada kiya',
+          'Dukan ka kiraya 15000 rupay',
+        ]
+      },
+      {
+        'label': '👥 ملازمین و تنخواہ',
+        'cmds': [
+          'Ali Cashier ki aaj hazari lagao',
+          'Ali ko 15000 tankhwah di',
+        ]
+      },
     ];
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'نمونہ کمانڈز (ٹیپ کریں):',
-          style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: AppConstants.textMuted),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'کمانڈ نمونے (ٹیپ کر کے چلائیں):',
+              style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: AppConstants.textMuted),
+            ),
+            Text(
+              '14 وائس فیچرز ✅',
+              style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: AppConstants.deepEmerald),
+            ),
+          ],
         ),
-        const SizedBox(height: 8),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
-            children: cmds.map((cmd) {
-              return Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: ActionChip(
-                  label: Text(cmd, style: GoogleFonts.inter(fontSize: 12)),
-                  backgroundColor: AppConstants.surfaceWhite,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    side: const BorderSide(color: AppConstants.softBorder),
-                  ),
-                  onPressed: () {
-                    setState(() => _promptController.text = cmd);
-                    _sendTextCommand(cmd);
-                  },
+        const SizedBox(height: 10),
+        SizedBox(
+          height: 82,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: categories.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 10),
+            itemBuilder: (context, catIdx) {
+              final cat = categories[catIdx];
+              final catLabel = cat['label'] as String;
+              final catCmds = cat['cmds'] as List<String>;
+
+              return Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppConstants.surfaceWhite,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: AppConstants.softBorder),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      catLabel,
+                      style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w700, color: AppConstants.deepEmerald),
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: catCmds.map((cmd) {
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 6),
+                          child: InkWell(
+                            onTap: () {
+                              setState(() => _promptController.text = cmd);
+                              _sendTextCommand(cmd);
+                            },
+                            borderRadius: BorderRadius.circular(8),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                              decoration: BoxDecoration(
+                                color: AppConstants.creamBg,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: AppConstants.softBorder),
+                              ),
+                              child: Text(
+                                cmd,
+                                style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w500, color: AppConstants.charcoal),
+                              ),
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ],
                 ),
               );
-            }).toList(),
+            },
           ),
         ),
       ],

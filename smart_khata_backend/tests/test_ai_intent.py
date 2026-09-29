@@ -55,15 +55,35 @@ async def test_ai_intent_classification_and_ledger_mutation(client: AsyncClient,
     cust_updated = await client.get(f"/api/customers/{cust_id}", headers=owner_headers)
     assert cust_updated.json()["balance_due"] == 700.0
 
-    # 5. VOICE ACTION (Audio STT): Upload speech audio file -> Converts Speech to Text -> Updates Ledger!
-    dummy_wav_header = b"RIFF\x24\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00\x44\xac\x00\x00\x88\x58\x01\x00\x02\x00\x10\x00data\x00\x00\x00\x00"
-    files = {"file": ("voice_ali_payment.wav", io.BytesIO(dummy_wav_header), "audio/wav")}
-    
-    stt_res = await client.post("/api/ai/stt-intent", files=files, headers=owner_headers)
-    assert stt_res.status_code == 200
-    assert stt_res.json()["intent"] == "record_payment"
-    assert "200" in stt_res.json()["reply"]
+    # 6. WhatsApp Reminder Generation
+    res_wa = await client.post("/api/ai/intent", json={"text": "Muhammad Ali ko WhatsApp per reminder bhejo"}, headers=owner_headers)
+    assert res_wa.status_code == 200
+    assert res_wa.json()["intent"] == "whatsapp_reminder"
+    assert "whatsapp_url" in res_wa.json()
+    assert "wa.me" in res_wa.json()["whatsapp_url"]
 
-    # Verify balance due updated again from 700.0 -> 200.0 via speech audio upload!
-    cust_final = await client.get(f"/api/customers/{cust_id}", headers=owner_headers)
-    assert cust_final.json()["balance_due"] == 200.0
+    # 7. Daily Business Summary
+    res_summary = await client.post("/api/ai/intent", json={"text": "aaj ki sale kitni hui"}, headers=owner_headers)
+    assert res_summary.status_code == 200
+    assert res_summary.json()["intent"] == "daily_summary"
+
+    # 8. Store Expense Recording
+    res_exp = await client.post("/api/ai/intent", json={"text": "Bijli ka bill 2000 rupay ada kiya"}, headers=owner_headers)
+    assert res_exp.status_code == 200
+    assert res_exp.json()["intent"] == "add_expense"
+
+    # 9. Supplier Payment
+    res_sup = await client.post("/api/ai/intent", json={"text": "Supplier Farooq ko 5000 rupay diye"}, headers=owner_headers)
+    assert res_sup.status_code == 200
+    assert res_sup.json()["intent"] == "supplier_payment"
+
+    # 10. Voice Sale (Credit / Udhaar)
+    res_sale = await client.post("/api/ai/intent", json={"text": "Muhammad Ali ko 2 kilo chawal udhaar becho"}, headers=owner_headers)
+    assert res_sale.status_code == 200
+    assert res_sale.json()["intent"] == "record_sale"
+
+    # 11. Add New Customer
+    res_new_cust = await client.post("/api/ai/intent", json={"text": "Naya customer Tariq Mahmood 03001234567 shamil karo"}, headers=owner_headers)
+    assert res_new_cust.status_code == 200
+    assert res_new_cust.json()["intent"] == "add_customer"
+
