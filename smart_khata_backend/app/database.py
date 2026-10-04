@@ -101,6 +101,16 @@ class InMemoryCollection:
             inserted_id = d["_id"]
         return InsertOneResult()
 
+    async def insert_many(self, docs: List[Dict[str, Any]]):
+        inserted_ids = []
+        for doc in docs:
+            res = await self.insert_one(doc)
+            inserted_ids.append(res.inserted_id)
+        class InsertManyResult:
+            def __init__(self, ids):
+                self.inserted_ids = ids
+        return InsertManyResult(inserted_ids)
+
     async def find_one(self, query: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         for d in self.docs:
             if self._matches(d, query):

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 class AppConstants {
@@ -11,6 +12,14 @@ class AppConstants {
   static String get baseUrl {
     if (customServerUrl != null && customServerUrl!.isNotEmpty) {
       return customServerUrl!;
+    }
+    if (kIsWeb) {
+      try {
+        final host = Uri.base.host;
+        if (host == 'localhost' || host == '127.0.0.1') {
+          return 'http://127.0.0.1:8000/api';
+        }
+      } catch (_) {}
     }
     return defaultCloudUrl;
   }
