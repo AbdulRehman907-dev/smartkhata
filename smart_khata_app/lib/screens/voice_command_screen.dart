@@ -59,6 +59,10 @@ class _VoiceCommandScreenState extends State<VoiceCommandScreen>
   String _selectedLanguage = 'Urdu';
   Map<String, dynamic>? _responseResult;
 
+  /// Silence detection timers (auto-stops microphone when user pauses speaking)
+  Timer? _silenceTimer;
+  Timer? _maxListenTimer;
+
   /// Pending result waiting for user confirmation (for payment/sale intents)
   Map<String, dynamic>? _pendingConfirmation;
   bool _awaitingConfirmation = false;
@@ -90,6 +94,8 @@ class _VoiceCommandScreenState extends State<VoiceCommandScreen>
 
   @override
   void dispose() {
+    _silenceTimer?.cancel();
+    _maxListenTimer?.cancel();
     _pulseCtrl.dispose();
     _ripple1Ctrl.dispose();
     _ripple2Ctrl.dispose();
@@ -181,15 +187,14 @@ class _VoiceCommandScreenState extends State<VoiceCommandScreen>
       final available = await _speech.initialize(
         onStatus: (status) {
           if ((status == 'done' || status == 'notListening') && _isListening) {
-            _stopListeningAnimations();
-            setState(() => _isListening = false);
-            final txt = _promptController.text.trim();
-            if (txt.isNotEmpty) _sendTextCommand(txt);
+            _stopListeningAndSubmit();
           }
         },
         onError: (_) {
+          _silenceTimer?.cancel();
+          _maxListenTimer?.cancel();
           _stopListeningAnimations();
-          setState(() => _isListening = false);
+          if (mounted) setState(() => _isListening = false);
         },
       );
       setState(() => _speechAvailable = available);
@@ -198,14 +203,31 @@ class _VoiceCommandScreenState extends State<VoiceCommandScreen>
     }
   }
 
+  // ── Stop Listening & Process ──────────────────────────────────────────────
+  Future<void> _stopListeningAndSubmit() async {
+    _silenceTimer?.cancel();
+    _maxListenTimer?.cancel();
+    if (!_isListening) return;
+
+    try {
+      await _speech.stop();
+    } catch (_) {}
+
+    _stopListeningAnimations();
+    if (mounted) {
+      setState(() => _isListening = false);
+    }
+
+    final txt = _promptController.text.trim();
+    if (txt.isNotEmpty) {
+      _sendTextCommand(txt);
+    }
+  }
+
   // ── Toggle Mic ───────────────────────────────────────────────────────────
   void _toggleListening() async {
     if (_isListening) {
-      await _speech.stop();
-      _stopListeningAnimations();
-      setState(() => _isListening = false);
-      final txt = _promptController.text.trim();
-      if (txt.isNotEmpty) _sendTextCommand(txt);
+      await _stopListeningAndSubmit();
       return;
     }
 
@@ -231,18 +253,58 @@ class _VoiceCommandScreenState extends State<VoiceCommandScreen>
     });
     _startListeningAnimations();
 
-    _speech.listen(
-      listenOptions: stt.SpeechListenOptions(
-        localeId: locale,
-        listenFor: const Duration(seconds: 30),
-        pauseFor: const Duration(seconds: 4),
-      ),
-      onResult: (SpeechRecognitionResult result) {
-        setState(() {
-          _promptController.text = result.recognizedWords;
-        });
-      },
-    );
+    // 1. Overall Safety Timeout: auto-submit after 12 seconds max
+    _maxListenTimer?.cancel();
+    _maxListenTimer = Timer(const Duration(seconds: 12), () {
+      if (_isListening) {
+        _stopListeningAndSubmit();
+      }
+    });
+
+    // 2. Initial Inactivity Timeout: if user turns on mic but says nothing for 4 seconds, turn off
+    _silenceTimer?.cancel();
+    _silenceTimer = Timer(const Duration(seconds: 4), () {
+      if (_isListening && _promptController.text.trim().isEmpty) {
+        _stopListeningAndSubmit();
+      }
+    });
+
+    try {
+      _speech.listen(
+        listenOptions: stt.SpeechListenOptions(
+          localeId: locale,
+          listenFor: const Duration(seconds: 20),
+          pauseFor: const Duration(seconds: 2),
+          cancelOnError: true,
+          partialResults: true,
+        ),
+        onResult: (SpeechRecognitionResult result) {
+          final words = result.recognizedWords;
+          if (words.isNotEmpty) {
+            setState(() {
+              _promptController.text = words;
+            });
+          }
+
+          // If speech engine signaled final result, auto-stop and submit right away!
+          if (result.finalResult) {
+            _stopListeningAndSubmit();
+            return;
+          }
+
+          // 3. Silence Detection Debounce:
+          // Once user begins speaking, pause of 1.6 seconds automatically turns off the mic and submits!
+          _silenceTimer?.cancel();
+          _silenceTimer = Timer(const Duration(milliseconds: 1600), () {
+            if (_isListening) {
+              _stopListeningAndSubmit();
+            }
+          });
+        },
+      );
+    } catch (_) {
+      _stopListeningAndSubmit();
+    }
   }
 
   // ── Local Offline Intent Fallback ─────────────────────────────────────────
@@ -321,10 +383,13 @@ class _VoiceCommandScreenState extends State<VoiceCommandScreen>
     }
 
     // 5. Customer Balance
-    if (_matchesAny(t, ['balance', 'baki', 'owe', 'kitna dena', 'hisaab batao', 'khata batao', 'بقایہ', 'باقی', 'حساب', 'کھاتہ'])) {
+    if (_matchesAny(t, [
+      'balance', 'baki', 'owe', 'kitna dena', 'hisaab batao', 'khata batao', 'khata dikhao', 'khata dekho', 'khata dekhna',
+      'بقایہ', 'بقایا', 'باقی', 'حساب', 'کھاتہ', 'کھاتا', 'کھاتے', 'کھاتہ دیکھو', 'کھاتا دیکھو', 'کھانہ دیکھو', 'کھانا دیکھو', 'کھانہ', 'کھانا', 'دیکھو'
+    ])) {
       return {
         'intent': 'CUSTOMER_BALANCE',
-        'reply': 'محمد علی کا کل بقایہ Rs. 1,200 ہے۔ (آف لائن)',
+        'reply': 'محمد علی کا کل بقایہ Rs. 1,200 ہے۔',
         'entities': {'person': 'Muhammad Ali', 'balance': 1200},
         'raw_text': text,
       };

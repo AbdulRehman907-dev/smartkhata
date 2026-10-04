@@ -548,9 +548,9 @@ async def classify_and_execute_intent(text: str, context: Optional[Dict[str, Any
     # 7. CUSTOMER_BALANCE (Outstanding Khata Lookups)
     # ──────────────────────────────────────────────────────────────────────
     elif _matches_any(text_lower, [
-        "balance", "baki", "owe", "kitna dena", "kitna lena", "hisaab batao", "khata batao", "khata dikhao",
-        "بقایہ", "باقی", "حساب بتاؤ", "کھاتہ بتاؤ", "کھاتا بتاؤ", "کھاتے بتاؤ", "کھاتہ دکھاؤ", "کتنا کھاتہ", "کتنا باقی", "کتنا بقایہ", "کتنا دینا", "کتنا لینا", "بقایا"
-    ]) or (matched_customer and _matches_any(text_lower, ["kitna", "کتنا", "batao", "بتاؤ", "dikhao", "دکھاؤ", "balance", "hisaab", "حساب"]) and not _matches_any(text_lower, ["stock", "اسٹاک", "سٹاک", "bacha", "becho", "de do", "do", "udhaar", "ادھار", "بیچو", "دو", "دیے", "جمع"])):
+        "balance", "baki", "owe", "kitna dena", "kitna lena", "hisaab batao", "khata batao", "khata dikhao", "khata dekho", "khata dekhna",
+        "بقایہ", "باقی", "حساب بتاؤ", "کھاتہ بتاؤ", "کھاتا بتاؤ", "کھاتے بتاؤ", "کھاتہ دکھاؤ", "کھاتہ دیکھو", "کھاتا دیکھو", "کھانہ دیکھو", "کھانا دیکھو", "کتنا کھاتہ", "کتنا باقی", "کتنا بقایہ", "کتنا دینا", "کتنا لینا", "بقایا", "بقایہ بتاؤ", "بقایا بتاؤ", "کھاتہ", "کھاتا", "کھاتے"
+    ]) or (matched_customer and _matches_any(text_lower, ["kitna", "کتنا", "batao", "بتاؤ", "dikhao", "دکھاؤ", "dekho", "دیکھو", "balance", "hisaab", "حساب", "khata", "کھاتہ", "کھاتا", "کھاتے", "کھانہ", "کھانا"]) and not _matches_any(text_lower, ["stock", "اسٹاک", "سٹاک", "bacha", "becho", "de do", "do", "udhaar", "ادھار", "بیچو", "دو", "دیے", "جمع"])):
         intent = "customer_balance"
         if matched_customer:
             bal = matched_customer.get("balance_due", 0)

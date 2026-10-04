@@ -210,6 +210,9 @@ class ApiClient {
 
   // ── Response handler ──────────────────────────────────────────────────────
   dynamic _handleResponse(http.Response response) {
+    if (response.statusCode == 401) {
+      SharedPreferences.getInstance().then((p) => p.remove(AppConstants.tokenKey));
+    }
     final body = jsonDecode(response.body);
     if (response.statusCode >= 200 && response.statusCode < 300) {
       return body;
