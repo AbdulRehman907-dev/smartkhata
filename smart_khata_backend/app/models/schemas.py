@@ -316,6 +316,7 @@ class VoiceIntentResponse(BaseModel):
     needs_confirmation: Optional[bool] = False
     confirm_message: Optional[str] = None
     whatsapp_url: Optional[str] = None
+    phone_url: Optional[str] = None
     follow_up_prompt: Optional[str] = None
 
 # Offline Sync & Backup

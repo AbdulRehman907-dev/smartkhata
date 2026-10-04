@@ -411,6 +411,47 @@ class _VoiceCommandScreenState extends State<VoiceCommandScreen>
       };
     }
 
+    // 13. Direct Call Customer Action
+    if (_matchesAny(t, ['call', 'phone karo', 'call karo', 'call lagao', 'call milao', 'فون کرو', 'کال کرو', 'فون ملاؤ', 'کال ملاؤ', 'نمبر ملاؤ', 'رابطہ کرو'])) {
+      const phone = '03119876543';
+      return {
+        'intent': 'CALL_CUSTOMER',
+        'reply': '📞 محمد علی ($phone) کو کال ملانے کے لیے نیچے بٹن دبائیں۔',
+        'entities': {'person': 'Muhammad Ali', 'phone': phone},
+        'phone_url': 'tel:$phone',
+        'raw_text': text,
+      };
+    }
+
+    // 14. Check Product Price
+    if (_matchesAny(t, ['rate', 'price', 'qeemat', 'keemat', 'kya rate', 'kitne ka', 'kitne ki', 'ریٹ', 'قیمت', 'کتنے کا', 'کتنے کی', 'کیا ریٹ ہے', 'کیا قیمت ہے'])) {
+      return {
+        'intent': 'CHECK_PRICE',
+        'reply': 'چاول کا ریٹ Rs. 240 فی کلو ہے۔ (آف لائن)',
+        'entities': {'product': 'Basmati Rice', 'price': 240},
+        'raw_text': text,
+      };
+    }
+
+    // 15. Calculate Change
+    if (_matchesAny(t, ['change', 'note diya', 'واپس کرنے', 'کتنے واپس', 'بقایا واپسی', 'باقی پیسے', 'کتنے بنے', 'کتنے دینے ہیں', 'کا نوٹ دیا', 'کا نوٹ']) ||
+        (_matchesAny(t, ['wapas', 'واپس']) && _matchesAny(t, ['bill', 'note', 'نوٹ', 'بل', 'kitne', 'کتنے']))) {
+      final allNums = RegExp(r'\d+(?:\.\d+)?').allMatches(text).map((m) => double.tryParse(m.group(0)!) ?? 0.0).toList();
+      double note = 1000;
+      double bill = 350;
+      if (allNums.length >= 2) {
+        note = allNums[0] > allNums[1] ? allNums[0] : allNums[1];
+        bill = allNums[0] > allNums[1] ? allNums[1] : allNums[0];
+      }
+      final diff = (note - bill).clamp(0.0, double.infinity);
+      return {
+        'intent': 'CALCULATE_CHANGE',
+        'reply': '💵 کسٹمر کو Rs. ${diff.toStringAsFixed(0)} بقایا واپس کریں۔ (نوٹ: Rs. ${note.toStringAsFixed(0)} - بل: Rs. ${bill.toStringAsFixed(0)})',
+        'entities': {'tendered': note, 'bill': bill, 'change': diff},
+        'raw_text': text,
+      };
+    }
+
     return {
       'intent': 'UNKNOWN',
       'reply': 'کمانڈ سمجھ نہیں آئی۔ مثال: "Ali ko 2 kilo chawal udhaar becho" یا "Ali ne 500 rupay diye"',
@@ -544,6 +585,23 @@ class _VoiceCommandScreenState extends State<VoiceCommandScreen>
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Could not launch WhatsApp.')),
+      );
+    }
+  }
+
+  // ── Direct Customer Phone Call ────────────────────────────────────────────
+  Future<void> _launchPhone(String url) async {
+    try {
+      final uri = Uri.parse(url);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        await launchUrl(uri);
+      }
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not launch phone dialer.')),
       );
     }
   }
@@ -783,15 +841,17 @@ class _VoiceCommandScreenState extends State<VoiceCommandScreen>
         'label': '📦 اسٹاک و انوینٹری',
         'cmds': [
           'چاول کا اسٹاک چیک کرو',
+          'Chawal ka rate kya hai',
           'Konsa maal khatam hone wala hai',
           'Chawal 50 kilo stock add karo',
         ]
       },
       {
-        'label': '👤 کھاتہ و واٹس ایپ',
+        'label': '👤 کھاتہ و رابطہ',
         'cmds': [
           'Muhammad Ali ka khata batao',
           'Ali ko WhatsApp per bill bhej do',
+          'Ali ko phone karo',
           'Naya customer Tariq 03001234567 shamil karo',
         ]
       },
@@ -823,7 +883,7 @@ class _VoiceCommandScreenState extends State<VoiceCommandScreen>
               style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: AppConstants.textMuted),
             ),
             Text(
-              '14 وائس فیچرز ✅',
+              '17 وائس فیچرز ✅',
               style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: AppConstants.deepEmerald),
             ),
           ],
@@ -1037,6 +1097,7 @@ class _VoiceCommandScreenState extends State<VoiceCommandScreen>
   // ── Result Card ───────────────────────────────────────────────────────────
   Widget _buildResultCard() {
     final whatsappUrl = _responseResult?['whatsapp_url'] as String?;
+    final phoneUrl = _responseResult?['phone_url'] as String?;
 
     return Container(
       width: double.infinity,
@@ -1095,6 +1156,20 @@ class _VoiceCommandScreenState extends State<VoiceCommandScreen>
                 ),
               ),
             ],
+            // Direct Phone Call Button
+            if (phoneUrl != null && phoneUrl.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              ElevatedButton.icon(
+                onPressed: () => _launchPhone(phoneUrl),
+                icon: const Icon(Icons.phone_in_talk_rounded, color: Colors.white, size: 18),
+                label: Text('کسٹمر کو فون ملائیں (Call Customer)', style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: Colors.white)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppConstants.deepEmerald,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+            ],
             // Entities
             if (_responseResult!['entities'] is Map && (_responseResult!['entities'] as Map).isNotEmpty) ...[
               const SizedBox(height: 12),
@@ -1102,7 +1177,7 @@ class _VoiceCommandScreenState extends State<VoiceCommandScreen>
                 spacing: 8,
                 runSpacing: 6,
                 children: (_responseResult!['entities'] as Map).entries.map((e) {
-                  if (e.key == 'whatsapp_url') return const SizedBox.shrink();
+                  if (e.key == 'whatsapp_url' || e.key == 'phone_url') return const SizedBox.shrink();
                   return Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(

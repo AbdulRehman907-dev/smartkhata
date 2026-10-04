@@ -87,3 +87,21 @@ async def test_ai_intent_classification_and_ledger_mutation(client: AsyncClient,
     assert res_new_cust.status_code == 200
     assert res_new_cust.json()["intent"] == "add_customer"
 
+    # 12. Check Product Price
+    res_price = await client.post("/api/ai/intent", json={"text": "chawal ka rate kya hai"}, headers=owner_headers)
+    assert res_price.status_code == 200
+    assert res_price.json()["intent"] == "check_price"
+    assert "1200" in res_price.json()["reply"]
+
+    # 13. Direct Call Customer Action
+    res_call = await client.post("/api/ai/intent", json={"text": "Muhammad Ali ko call lagao"}, headers=owner_headers)
+    assert res_call.status_code == 200
+    assert res_call.json()["intent"] == "call_customer"
+    assert "tel:" in res_call.json().get("phone_url", "")
+
+    # 14. Change Calculation
+    res_change = await client.post("/api/ai/intent", json={"text": "1000 ka note diya aur 350 ka bill bana kitne wapas karne hain"}, headers=owner_headers)
+    assert res_change.status_code == 200
+    assert res_change.json()["intent"] == "calculate_change"
+    assert "650" in res_change.json()["reply"]
+
