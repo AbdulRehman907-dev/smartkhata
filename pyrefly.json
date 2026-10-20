@@ -1,10 +1,20 @@
 {
   "python_interpreter": "C:\\Users\\aar25\\Desktop\\FYP\\.venv\\Scripts\\python.exe",
+  "python-interpreter-path": "C:\\Users\\aar25\\Desktop\\FYP\\.venv\\Scripts\\python.exe",
   "site_packages": [
+    "C:\\Users\\aar25\\Desktop\\FYP\\.venv\\Lib\\site-packages"
+  ],
+  "site-package-path": [
     "C:\\Users\\aar25\\Desktop\\FYP\\.venv\\Lib\\site-packages"
   ],
   "search_path": [
     "C:\\Users\\aar25\\Desktop\\FYP\\smart_khata_backend",
+    "C:\\Users\\aar25\\Desktop\\FYP",
+    "C:\\Users\\aar25\\Desktop\\FYP\\.venv\\Lib\\site-packages"
+  ],
+  "search-path": [
+    "C:\\Users\\aar25\\Desktop\\FYP\\smart_khata_backend",
+    "C:\\Users\\aar25\\Desktop\\FYP",
     "C:\\Users\\aar25\\Desktop\\FYP\\.venv\\Lib\\site-packages"
   ],
   "python_version": "3.13",

@@ -1,0 +1,1 @@
+# Smart Khata App Package

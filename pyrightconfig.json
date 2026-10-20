@@ -1,0 +1,12 @@
+{
+  "include": [
+    "smart_khata_backend",
+    "direct_test.py"
+  ],
+  "extraPaths": [
+    "smart_khata_backend"
+  ],
+  "venvPath": ".",
+  "venv": ".venv",
+  "pythonVersion": "3.13"
+}

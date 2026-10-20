@@ -545,28 +545,12 @@ async def classify_and_execute_intent(text: str, context: Optional[Dict[str, Any
             reply = "نوٹ اور بل کی رقم بولیں (مثال: '1000 کا نوٹ دیا اور 350 کا بل بنا')"
 
     # ──────────────────────────────────────────────────────────────────────
-    # 7. CUSTOMER_BALANCE (Outstanding Khata Lookups)
-    # ──────────────────────────────────────────────────────────────────────
-    elif _matches_any(text_lower, [
-        "balance", "baki", "owe", "kitna dena", "kitna lena", "hisaab batao", "khata batao", "khata dikhao", "khata dekho", "khata dekhna",
-        "بقایہ", "باقی", "حساب بتاؤ", "کھاتہ بتاؤ", "کھاتا بتاؤ", "کھاتے بتاؤ", "کھاتہ دکھاؤ", "کھاتہ دیکھو", "کھاتا دیکھو", "کھانہ دیکھو", "کھانا دیکھو", "کتنا کھاتہ", "کتنا باقی", "کتنا بقایہ", "کتنا دینا", "کتنا لینا", "بقایا", "بقایہ بتاؤ", "بقایا بتاؤ", "کھاتہ", "کھاتا", "کھاتے"
-    ]) or (matched_customer and _matches_any(text_lower, ["kitna", "کتنا", "batao", "بتاؤ", "dikhao", "دکھاؤ", "dekho", "دیکھو", "balance", "hisaab", "حساب", "khata", "کھاتہ", "کھاتا", "کھاتے", "کھانہ", "کھانا"]) and not _matches_any(text_lower, ["stock", "اسٹاک", "سٹاک", "bacha", "becho", "de do", "do", "udhaar", "ادھار", "بیچو", "دو", "دیے", "جمع"])):
-        intent = "customer_balance"
-        if matched_customer:
-            bal = matched_customer.get("balance_due", 0)
-            entities = {"person": matched_customer["name"], "balance": bal}
-            reply = f"{matched_customer['name']} کا کل بقایہ Rs. {bal:.0f} ہے۔"
-        else:
-            total = sum(c.get("balance_due", 0.0) for c in customers)
-            entities = {"total_pending": total}
-            reply = f"تمام کسٹمرز کا مجموعی بقایہ Rs. {total:.0f} ہے۔"
-
-    # ──────────────────────────────────────────────────────────────────────
-    # 8. RECORD_PAYMENT (Customer Khata Payment Received)
+    # 7. RECORD_PAYMENT (Customer Khata Payment Received / Deposited)
+    # MUST be checked BEFORE CUSTOMER_BALANCE so that "Ali ke khate mein 600 jamah karo" is recorded!
     # ──────────────────────────────────────────────────────────────────────
     elif _matches_any(text_lower, [
         "diye", "diya", "paid", "jamah", "payment", "vasool", "wapas",
-        "karwaye", "de diye", "ada kiye", "دیے", "دیا", "جمع کروائے", "جمع کیے", "جمع کرو", "جمع", "ادا کیے", "وصول", "روپے دیے", "پیسے دیے", "کھاتے میں جمع"
+        "karwaye", "de diye", "ada kiye", "دیے", "دیا", "جمع کروائے", "جمع کیے", "جمع کرو", "جمع کر دو", "جمع کرلو", "جمع کریں", "جمع", "ادا کیے", "وصول", "روپے دیے", "پیسے دیے", "کھاتے میں جمع"
     ]) and not _matches_any(text_lower, ["bijli", "electricity", "rent", "kiraya", "supplier", "سپلائر", "بجلی", "کرایہ", "خرچہ", "note", "نوٹ", "change", "bill bana", "بل بنا"]):
         intent = "record_payment"
         cust_name = matched_customer["name"] if matched_customer else "Customer"
@@ -598,11 +582,38 @@ async def classify_and_execute_intent(text: str, context: Optional[Dict[str, Any
             )
 
     # ──────────────────────────────────────────────────────────────────────
+    # 8. CUSTOMER_BALANCE (Outstanding Khata Lookups)
+    # ──────────────────────────────────────────────────────────────────────
+    elif (_matches_any(text_lower, [
+        "balance", "baki", "baqi", "owe", "kitna dena", "kitna lena", "hisaab batao", "khata batao", "khata dikhao", "khata dekho", "khata dekhna",
+        "paise batao", "kitne paise", "paise kitne", "kitne paise hain", "kitna hisab",
+        "بقایہ", "بقایا", "باقی", "حساب بتاؤ", "کھاتہ بتاؤ", "کھاتا بتاؤ", "کھاتے بتاؤ", "کھاتہ دکھاؤ", "کھاتہ دیکھو", "کھاتا دیکھو", "کھانہ دیکھو", "کھانا دیکھو",
+        "پیسے بتاؤ", "پیسے دکھاؤ", "کتنے پیسے", "پیسے کتنے", "کتنے دینے ہیں", "کتنے لینے ہیں", "کتنے پیسے بنے", "کتنے بنے",
+        "کتنا کھاتہ", "کتنا باقی", "کتنا بقایہ", "کتنا دینا", "کتنا لینا", "بقایہ بتاؤ", "بقایا بتاؤ"
+    ]) or (
+        _matches_any(text_lower, ["batao", "بتاؤ", "dikhao", "دکھاؤ", "dekho", "دیکھو", "kitna", "کتنا", "kitne", "کتنے", "kya", "کیا"]) and
+        _matches_any(text_lower, ["paise", "پیسے", "khata", "کھاتہ", "کھاتا", "کھاتے", "hisaab", "حساب", "baki", "باقی", "بقایہ", "بقایا"])
+    ) or (matched_customer and _matches_any(text_lower, ["kitna", "کتنا", "batao", "بتاؤ", "dikhao", "دکھاؤ", "dekho", "دیکھو", "balance", "hisaab", "حساب", "paise", "پیسے", "khata", "کھاتہ", "کھاتا", "کھاتے", "کھانہ", "کھانا"]))
+    ) and not _matches_any(text_lower, [
+        "stock", "اسٹاک", "سٹاک", "bacha", "becho", "de do", "do", "udhaar", "ادھار", "بیچو", "دو", "دیے", "جمع", "ادا"
+    ]):
+        intent = "customer_balance"
+        if matched_customer:
+            bal = matched_customer.get("balance_due", 0)
+            entities = {"person": matched_customer["name"], "balance": bal}
+            reply = f"{matched_customer['name']} کا کل بقایہ Rs. {bal:.0f} ہے۔"
+        else:
+            total = sum(c.get("balance_due", 0.0) for c in customers)
+            entities = {"total_pending": total}
+            reply = f"تمام کسٹمرز کا مجموعی بقایہ Rs. {total:.0f} ہے۔"
+
+    # ──────────────────────────────────────────────────────────────────────
     # 9. ADD_CUSTOMER (Voice Customer Onboarding)
     # ──────────────────────────────────────────────────────────────────────
     elif _matches_any(text_lower, [
         "naya customer", "new customer", "naya khata", "customer banao", "customer shamil",
         "نیا کسٹمر", "نیا گاہک", "نیا کھاتہ", "کسٹمر شامل", "کھاتہ کھولو", "نیا بندہ"
+
     ]):
         intent = "add_customer"
         from app.services.customer_service import create_customer

@@ -1,0 +1,7 @@
+python-interpreter-path = ".venv/Scripts/python.exe"
+
+search-path = [
+    "smart_khata_backend",
+    ".",
+    ".venv/Lib/site-packages"
+]

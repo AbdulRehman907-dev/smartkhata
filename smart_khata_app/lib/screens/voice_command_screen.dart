@@ -382,30 +382,59 @@ class _VoiceCommandScreenState extends State<VoiceCommandScreen>
       };
     }
 
-    // 5. Customer Balance
+    String customerName = 'محمد علی';
+    double customerBal = 1200.0;
+    if (_matchesAny(t, ['tariq', 'طارق', 'mehmood', 'محمود'])) {
+      customerName = 'طارق محمود';
+      customerBal = 0.0;
+    } else if (_matchesAny(t, ['bilal', 'بلال'])) {
+      customerName = 'بلال';
+      customerBal = 500.0;
+    } else if (_matchesAny(t, ['aslam', 'اسلم', 'chaudhry', 'چودھری'])) {
+      customerName = 'چودھری اسلم';
+      customerBal = 2400.0;
+    } else if (_matchesAny(t, ['ali', 'علی', 'muhammad ali', 'محمد علی'])) {
+      customerName = 'محمد علی';
+      customerBal = 1200.0;
+    }
+
+    // 5. Record Payment / Deposit (Check BEFORE balance check so "600 jamah karo" records a payment!)
     if (_matchesAny(t, [
-      'balance', 'baki', 'owe', 'kitna dena', 'hisaab batao', 'khata batao', 'khata dikhao', 'khata dekho', 'khata dekhna',
-      'بقایہ', 'بقایا', 'باقی', 'حساب', 'کھاتہ', 'کھاتا', 'کھاتے', 'کھاتہ دیکھو', 'کھاتا دیکھو', 'کھانہ دیکھو', 'کھانا دیکھو', 'کھانہ', 'کھانا', 'دیکھو'
+      'جمع کرو', 'جمع کر دو', 'جمع کیے', 'جمع کروائے', 'کھاتے میں جمع', 'جمع کریں', 'جمع',
+      'diye', 'diya', 'paid', 'jamah', 'payment', 'vasool', 'wapas', 'karwaye', 'de diye', 'ada kiye',
+      'دیے', 'دیا', 'ادا', 'وصول', 'روپے دیے', 'پیسے دیے'
+    ]) && !_matchesAny(t, [
+      'supplier', 'سپلائر', 'ڈیلر', 'مال والے', 'bijli', 'rent', 'kiraya', 'بجلی', 'کرایہ', 'خرچہ', 'note', 'نوٹ', 'change'
     ])) {
+      final safeNum = numVal > 0 ? numVal : 500.0;
+      return {
+        'intent': 'RECORD_PAYMENT',
+        'reply': '✅ ادائیگی Rs. ${safeNum.toStringAsFixed(0)} $customerName کے کھاتے میں جمع کی گئی۔ (آف لائن)',
+        'entities': {'person': customerName, 'amount': safeNum},
+        'raw_text': text,
+        'needs_confirmation': true,
+        'confirm_message': '$customerName کے کھاتے میں Rs. ${safeNum.toStringAsFixed(0)} جمع کریں؟',
+      };
+    }
+
+    // 6. Customer Balance / Debt Inquiry (Supports "علی کے پیسے بتاؤ", "کتنے پیسے ہیں", etc.)
+    if ((_matchesAny(t, [
+      'balance', 'baki', 'baqi', 'owe', 'kitna dena', 'kitna lena', 'hisaab batao', 'khata batao', 'khata dikhao', 'khata dekho', 'khata dekhna',
+      'paise batao', 'kitne paise', 'paise kitne', 'kitna hisab', 'kitne bante',
+      'بقایہ', 'بقایا', 'باقی', 'حساب بتاؤ', 'کھاتہ بتاؤ', 'کھاتا بتاؤ', 'کھاتے بتاؤ', 'کھاتہ دکھاؤ', 'کھاتہ دیکھو', 'کھاتا دیکھو', 'کھانہ دیکھو', 'کھانا دیکھو',
+      'پیسے بتاؤ', 'پیسے دکھاؤ', 'کتنے پیسے', 'پیسے کتنے', 'کتنے دینے ہیں', 'کتنے لینے ہیں', 'کتنے پیسے بنے', 'کتنے بنے', 'کتنے ہیں',
+      'کتنا کھاتہ', 'کتنا باقی', 'کتنا بقایہ', 'کتنا دینا', 'کتنا لینا', 'بقایہ بتاؤ', 'بقایا بتاؤ'
+    ]) || (_matchesAny(t, ['بتاؤ', 'دکھاؤ', 'دیکھو', 'کتنا', 'کتنے', 'کتنی', 'کیا', 'batao', 'dikhao', 'dekho', 'kitna', 'kitne']) &&
+          _matchesAny(t, ['پیسے', 'کھاتہ', 'کھاتا', 'کھاتے', 'حساب', 'بقایہ', 'بقایا', 'باقی', 'paise', 'khata', 'hisaab', 'balance']))) &&
+        !_matchesAny(t, ['stock', 'اسٹاک', 'سٹاک', 'bacha', 'becho', 'de do', 'do', 'udhaar', 'ادھار', 'بیچو', 'دو', 'دیے', 'جمع'])) {
       return {
         'intent': 'CUSTOMER_BALANCE',
-        'reply': 'محمد علی کا کل بقایہ Rs. 1,200 ہے۔',
-        'entities': {'person': 'Muhammad Ali', 'balance': 1200},
+        'reply': '$customerName کا کل بقایہ Rs. ${customerBal.toStringAsFixed(0)} ہے۔',
+        'entities': {'person': customerName, 'balance': customerBal},
         'raw_text': text,
       };
     }
 
-    // 6. Record Payment
-    if (_matchesAny(t, ['diye', 'diya', 'paid', 'jamah', 'payment', 'vasool', 'wapas', 'karwaye', 'de diye', 'ada kiye', 'دیے', 'جمع', 'ادا', 'وصول'])) {
-      return {
-        'intent': 'RECORD_PAYMENT',
-        'reply': '✅ ادائیگی Rs. $numVal محمد علی کے لیے ریکارڈ کی گئی۔ (آف لائن)',
-        'entities': {'person': 'Muhammad Ali', 'amount': numVal},
-        'raw_text': text,
-        'needs_confirmation': true,
-        'confirm_message': 'محمد علی سے Rs. ${numVal.toStringAsFixed(0)} کی وصولی ریکارڈ کریں؟',
-      };
-    }
 
     // 7. Add Customer
     if (_matchesAny(t, ['naya customer', 'new customer', 'naya khata', 'نیا کسٹمر', 'نیا گاہک', 'نیا کھاتہ'])) {

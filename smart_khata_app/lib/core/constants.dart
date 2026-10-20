@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 
 class AppConstants {
   static const String appName = 'Smart Khata';
+  static const String appVersion = '1.0.0';
+  static const int appVersionCode = 1;
 
   // ── API Base URL ───────────────────────────────────────────────────────────
   // Default cloud live production URL (Render Free Forever)

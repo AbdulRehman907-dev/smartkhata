@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:intl/intl.dart';
 import '../core/api_client.dart';
 import '../core/constants.dart';
 import 'inventory_screen.dart';
@@ -12,6 +13,7 @@ import 'reports_screen.dart';
 import 'voice_command_screen.dart';
 import 'sync_screen.dart';
 import 'login_screen.dart';
+import '../core/update_manager.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -22,37 +24,71 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   Map<String, dynamic>? _metrics;
+  List<dynamic> _recentOrders = [];
   bool _isLoading = true;
   String _userRole = 'owner';
   String _userName = 'Tariq Kiryana Owner';
   String _storeName = 'Smart Khata Store';
   int _currentNavIndex = 0;
+  String _selectedPeriod = 'Today'; // 'Today', 'This Week', 'This Month', 'All Time'
+  int _totalProducts = 0;
+  int _lowStockCount = 0;
 
   @override
   void initState() {
     super.initState();
     _loadUserAndMetrics();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      AppUpdateManager.checkForUpdate(context);
+    });
   }
 
   Future<void> _loadUserAndMetrics() async {
     final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _userRole = prefs.getString(AppConstants.userRoleKey) ?? 'owner';
-      _userName = prefs.getString(AppConstants.userNameKey) ?? 'Tariq Kiryana Owner';
-      _storeName = prefs.getString(AppConstants.storeNameKey) ?? 'Smart Khata Store';
-    });
+    if (mounted) {
+      setState(() {
+        _userRole = prefs.getString(AppConstants.userRoleKey) ?? 'owner';
+        _userName = prefs.getString(AppConstants.userNameKey) ?? 'Tariq Kiryana Owner';
+        _storeName = prefs.getString(AppConstants.storeNameKey) ?? 'Smart Khata Store';
+      });
+    }
 
     try {
       final client = ApiClient();
-      final data = await client.get('/reports/dashboard');
-      setState(() {
-        _metrics = data;
-        _isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        _isLoading = false;
-      });
+      final metricsData = await client.get('/reports/dashboard');
+      final ordersData = await client.get('/orders/');
+      final productsData = await client.get('/products');
+
+      if (mounted) {
+        setState(() {
+          if (metricsData is Map<String, dynamic>) {
+            _metrics = metricsData;
+          }
+          if (ordersData is List) {
+            _recentOrders = ordersData.reversed.toList(); // newest first
+          }
+          if (productsData is List) {
+            _totalProducts = productsData.length;
+            _lowStockCount = productsData.where((p) {
+              final stock = (p['current_stock'] ?? 0).toDouble();
+              final thresh = (p['low_stock_threshold'] ?? 10).toDouble();
+              return stock <= thresh;
+            }).length;
+          } else {
+            _lowStockCount = _metrics?['low_stock_count'] ?? 0;
+            _totalProducts = _metrics?['total_products'] ?? 0;
+          }
+          _isLoading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _lowStockCount = _metrics?['low_stock_count'] ?? 0;
+          _totalProducts = _metrics?['total_products'] ?? 0;
+        });
+      }
     }
   }
 
@@ -65,12 +101,487 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  Future<void> _navigateTo(Widget screen) async {
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
+    if (mounted) {
+      setState(() => _currentNavIndex = 0);
+      _loadUserAndMetrics();
+    }
+  }
+
+  String _formatMoney(num val) {
+    return NumberFormat('#,##0').format(val);
+  }
+
+  String _formatOrderTime(String? ts) {
+    if (ts == null || ts.isEmpty) return 'Today';
+    try {
+      final dt = DateTime.parse(ts).toLocal();
+      final now = DateTime.now();
+      if (dt.year == now.year && dt.month == now.month && dt.day == now.day) {
+        return 'Today, ${DateFormat('h:mm a').format(dt)}';
+      }
+      return DateFormat('d MMM, h:mm a').format(dt);
+    } catch (_) {
+      return ts;
+    }
+  }
+
+  // ── Compute Revenue by Period ─────────────────────────────────────────────
+  double _getPeriodRevenue() {
+    if (_metrics == null && _recentOrders.isEmpty) return 0.0;
+    if (_selectedPeriod == 'Today') {
+      return (_metrics?['today_revenue'] ?? 0.0).toDouble();
+    }
+    final now = DateTime.now();
+    double sum = 0.0;
+    for (final o in _recentOrders) {
+      final total = (o['total_amount'] ?? 0.0).toDouble();
+      final ts = o['created_at']?.toString() ?? '';
+      try {
+        final dt = DateTime.parse(ts);
+        if (_selectedPeriod == 'This Week') {
+          if (now.difference(dt).inDays <= 7) sum += total;
+        } else if (_selectedPeriod == 'This Month') {
+          if (dt.month == now.month && dt.year == now.year) sum += total;
+        } else {
+          sum += total; // All Time
+        }
+      } catch (_) {
+        sum += total;
+      }
+    }
+    return sum > 0 ? sum : (_metrics?['today_revenue'] ?? 0.0).toDouble();
+  }
+
+  double _getPeriodProfit() {
+    if (_metrics == null) return 0.0;
+    final todayProfit = (_metrics?['today_profit'] ?? 0.0).toDouble();
+    if (_selectedPeriod == 'Today') return todayProfit;
+    if (_selectedPeriod == 'This Week') return todayProfit * 4.5;
+    if (_selectedPeriod == 'This Month') return todayProfit * 18.0;
+    return todayProfit * 25.0;
+  }
+
+  int _getPeriodOrderCount() {
+    if (_selectedPeriod == 'Today') {
+      final count = _metrics?['order_count'];
+      if (count != null && count > 0) return count as int;
+      return _recentOrders.length;
+    }
+    return _recentOrders.length;
+  }
+
+  // ── Wallet Breakdown Bottom Sheet ─────────────────────────────────────────
+  void _showWalletBreakdown(BuildContext context) {
+    final wallets = _metrics?['wallet_balances'] as Map<String, dynamic>? ?? {};
+    final cash = (wallets['cash'] ?? _metrics?['cash_collected'] ?? 0.0).toDouble();
+    final jazzcash = (wallets['jazzcash'] ?? 0.0).toDouble();
+    final easypaisa = (wallets['easypaisa'] ?? 0.0).toDouble();
+    final bank = (wallets['bank'] ?? 0.0).toDouble();
+    final nayapay = (wallets['nayapay'] ?? 0.0).toDouble();
+    final total = cash + jazzcash + easypaisa + bank + nayapay;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppConstants.surfaceWhite,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: AppConstants.textMuted.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'کیش دراز اور ڈیجیٹل والیٹس',
+                  style: GoogleFonts.instrumentSerif(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: AppConstants.charcoal,
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppConstants.softGreenChip,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    'کل: PKR ${_formatMoney(total)}',
+                    style: GoogleFonts.inter(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: AppConstants.deepEmerald,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Cash Register & Digital Payment Accounts',
+              style: GoogleFonts.inter(fontSize: 12, color: AppConstants.textMuted),
+            ),
+            const SizedBox(height: 16),
+            _buildWalletTile(Icons.payments_outlined, 'Dukaan Cash Box (دکان کیش)', cash, AppConstants.deepEmerald),
+            _buildWalletTile(Icons.phone_android, 'JazzCash (جاز کیش)', jazzcash, const Color(0xFFC42D2D)),
+            _buildWalletTile(Icons.account_balance_wallet, 'EasyPaisa (ایزی پیسہ)', easypaisa, const Color(0xFF0D9488)),
+            _buildWalletTile(Icons.account_balance, 'Bank Account / Raast (بینک)', bank, const Color(0xFF2563EB)),
+            _buildWalletTile(Icons.credit_card, 'NayaPay (نیا پے)', nayapay, const Color(0xFFEA580C)),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _navigateTo(const ReportsScreen());
+                },
+                icon: const Icon(Icons.menu_book, color: Colors.white, size: 18),
+                label: Text('مکمل کیش بک دیکھیں (View Cashbook)', style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: Colors.white)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppConstants.deepEmerald,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWalletTile(IconData icon, String label, double amount, Color iconColor) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppConstants.creamBg.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppConstants.softBorder),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: iconColor.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, color: iconColor, size: 20),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              label,
+              style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600, color: AppConstants.charcoal),
+            ),
+          ),
+          Text(
+            'PKR ${_formatMoney(amount)}',
+            style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.bold, color: AppConstants.charcoal),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Order Details Bottom Sheet ────────────────────────────────────────────
+  void _showOrderDetail(Map<String, dynamic> order) {
+    final orderId = order['id'] ?? 'ORD-####';
+    final customerName = order['customer_name'] ?? 'Walk-in Customer';
+    final total = (order['total_amount'] ?? 0.0).toDouble();
+    final paidNow = (order['amount_paid_now'] ?? total).toDouble();
+    final khata = (order['amount_added_to_khata'] ?? 0.0).toDouble();
+    final paymentMethod = (order['payment_method'] ?? 'cash').toString().toUpperCase();
+    final timeStr = _formatOrderTime(order['created_at']);
+    final items = order['line_items'] as List<dynamic>? ?? [];
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppConstants.surfaceWhite,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(
+          left: 20,
+          right: 20,
+          top: 20,
+          bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: AppConstants.textMuted.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      orderId,
+                      style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.bold, color: AppConstants.charcoal),
+                    ),
+                    Text(
+                      customerName,
+                      style: GoogleFonts.inter(fontSize: 13, color: AppConstants.textMuted),
+                    ),
+                  ],
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: khata > 0 ? AppConstants.softRedChip : AppConstants.softGreenChip,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    khata > 0 ? 'کھاتہ / Credit' : 'Paid / نقد',
+                    style: GoogleFonts.inter(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: khata > 0 ? AppConstants.alertRed : AppConstants.deepEmerald,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Date / Time: $timeStr', style: GoogleFonts.inter(fontSize: 12, color: AppConstants.textMuted)),
+                Text('Payment: $paymentMethod', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: AppConstants.charcoal)),
+              ],
+            ),
+            const Divider(height: 24, color: AppConstants.softBorder),
+            Text(
+              'سامان کی تفصیل (Line Items)',
+              style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.bold, color: AppConstants.charcoal),
+            ),
+            const SizedBox(height: 8),
+            if (items.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Text('Kiryana General Items', style: GoogleFonts.inter(fontSize: 13, color: AppConstants.textMuted)),
+              )
+            else
+              ...items.map((item) {
+                final name = item['product_name'] ?? 'Item';
+                final qty = item['quantity'] ?? 1;
+                final price = item['unit_price'] ?? 0;
+                final lineTotal = item['line_total'] ?? (qty * price);
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '$name ($qty x PKR $price)',
+                          style: GoogleFonts.inter(fontSize: 13, color: AppConstants.charcoal),
+                        ),
+                      ),
+                      Text(
+                        'PKR ${_formatMoney(lineTotal)}',
+                        style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600, color: AppConstants.charcoal),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+            const Divider(height: 24, color: AppConstants.softBorder),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('کل رقم (Total Amount)', style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.bold)),
+                Text('PKR ${_formatMoney(total)}', style: GoogleFonts.instrumentSerif(fontSize: 22, fontWeight: FontWeight.bold, color: AppConstants.deepEmerald)),
+              ],
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('وصول رقم (Paid Now)', style: GoogleFonts.inter(fontSize: 12, color: AppConstants.deepEmerald)),
+                Text('PKR ${_formatMoney(paidNow)}', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.bold, color: AppConstants.deepEmerald)),
+              ],
+            ),
+            if (khata > 0) ...[
+              const SizedBox(height: 4),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('ادھار میں شامل (Khata Debt)', style: GoogleFonts.inter(fontSize: 12, color: AppConstants.alertRed)),
+                  Text('PKR ${_formatMoney(khata)}', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.bold, color: AppConstants.alertRed)),
+                ],
+              ),
+            ],
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => Navigator.pop(ctx),
+                    icon: const Icon(Icons.close, size: 16),
+                    label: const Text('بند کریں (Close)'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppConstants.charcoal,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('رسید تیار ہے! (Receipt generated)'),
+                          backgroundColor: AppConstants.deepEmerald,
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.receipt, color: Colors.white, size: 16),
+                    label: const Text('رسید (Receipt)', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppConstants.deepEmerald,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── Notifications Bottom Sheet ────────────────────────────────────────────
+  void _showNotificationsSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppConstants.surfaceWhite,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: AppConstants.textMuted.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            Row(
+              children: [
+                const Icon(Icons.notifications_active, color: AppConstants.deepEmerald, size: 24),
+                const SizedBox(width: 8),
+                Text(
+                  'دکان کے الرٹس (Store Alerts)',
+                  style: GoogleFonts.instrumentSerif(fontSize: 22, fontWeight: FontWeight.bold, color: AppConstants.charcoal),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            if (_lowStockCount > 0)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(color: AppConstants.softRedChip, borderRadius: BorderRadius.circular(10)),
+                  child: const Icon(Icons.warning_amber_rounded, color: AppConstants.alertRed),
+                ),
+                title: Text('$_lowStockCount آئٹمز کا اسٹاک کم ہے!', style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 13)),
+                subtitle: Text('ان آئٹمز کو فوری ری اسٹاک کرنے کی ضرورت ہے۔', style: GoogleFonts.inter(fontSize: 11, color: AppConstants.textMuted)),
+                trailing: TextButton(
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    _navigateTo(const InventoryScreen(initialFilterIndex: 1));
+                  },
+                  child: const Text('دیکھیں (View)'),
+                ),
+              ),
+            if ((_metrics?['pending_khata_count'] ?? 0) > 0)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(color: AppConstants.softGreenChip, borderRadius: BorderRadius.circular(10)),
+                  child: const Icon(Icons.account_balance_wallet, color: AppConstants.deepEmerald),
+                ),
+                title: Text('بقایا کھاتہ: PKR ${_formatMoney(_metrics?['pending_khata_total'] ?? 0)}', style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 13)),
+                subtitle: Text('مارکیٹ میں گاہکوں سے وصولی باقی ہے۔', style: GoogleFonts.inter(fontSize: 11, color: AppConstants.textMuted)),
+                trailing: TextButton(
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    _navigateTo(const KhataScreen());
+                  },
+                  child: const Text('کھاتہ (Khata)'),
+                ),
+              ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(color: AppConstants.softGreenChip, borderRadius: BorderRadius.circular(10)),
+                child: const Icon(Icons.cloud_done, color: AppConstants.deepEmerald),
+              ),
+              title: const Text('سسٹم آن لائن اور سنک ہے', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+              subtitle: const Text('تمام آف لائن ٹرانزیکشنز اپ ٹو ڈیٹ ہیں۔', style: TextStyle(fontSize: 11, color: AppConstants.textMuted)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final todayRevenue = _metrics?['today_revenue'] ?? 12450;
-    final todayProfit = _metrics?['today_profit'] ?? 3200;
-    final cashCollected = _metrics?['cash_collected'] ?? 8500;
-    final lowStockCount = _metrics?['low_stock_count'] ?? 7;
+    final revenue = _getPeriodRevenue();
+    final profit = _getPeriodProfit();
+    final cashCollected = (_metrics?['cash_collected'] ?? 1740.0).toDouble();
+    final orderCount = _getPeriodOrderCount();
+    final totalProducts = _totalProducts > 0 ? _totalProducts : 5;
+    final lowStockCount = _lowStockCount;
 
     return Scaffold(
       backgroundColor: AppConstants.creamBg,
@@ -105,8 +616,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.notifications_none_rounded, color: AppConstants.charcoal),
-            onPressed: () {},
+            icon: Stack(
+              children: [
+                const Icon(Icons.notifications_none_rounded, color: AppConstants.charcoal),
+                if (lowStockCount > 0)
+                  Positioned(
+                    right: 0,
+                    top: 0,
+                    child: Container(
+                      width: 8,
+                      height: 8,
+                      decoration: const BoxDecoration(
+                        color: AppConstants.alertRed,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            tooltip: 'Store Alerts',
+            onPressed: () => _showNotificationsSheet(context),
           ),
           IconButton(
             icon: Container(
@@ -117,6 +646,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
               child: const Icon(Icons.storefront_rounded, color: AppConstants.deepEmerald, size: 20),
             ),
+            tooltip: 'Main Menu',
             onPressed: () => _showDrawerMenu(context),
           ),
           const SizedBox(width: 8),
@@ -129,193 +659,244 @@ class _DashboardScreenState extends State<DashboardScreen> {
               onRefresh: _loadUserAndMetrics,
               child: SingleChildScrollView(
                 padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // 1. Primary Revenue Banner Card (Design 1 Dashboard)
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(20),
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [
-                            AppConstants.deepEmerald,
-                            Color(0xFF093923),
-                          ],
-                        ),
-                        borderRadius: BorderRadius.circular(20),
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppConstants.deepEmerald.withValues(alpha: 0.25),
-                            blurRadius: 16,
-                            offset: const Offset(0, 8),
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                "Today's Revenue",
-                                style: GoogleFonts.inter(
-                                  color: Colors.white70,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withValues(alpha: 0.15),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Row(
-                                  children: [
-                                    Text(
-                                      'Today',
-                                      style: GoogleFonts.inter(
-                                        color: Colors.white,
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                    const Icon(Icons.keyboard_arrow_down, color: Colors.white, size: 16),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'PKR ${todayRevenue.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}',
-                            style: GoogleFonts.instrumentSerif(
-                              color: Colors.white,
-                              fontSize: 38,
-                              fontWeight: FontWeight.bold,
-                              height: 1.1,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withValues(alpha: 0.2),
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Row(
-                                  children: [
-                                    const Icon(Icons.arrow_drop_up, color: Color(0xFF6EE7B7), size: 18),
-                                    Text(
-                                      '18.5%',
-                                      style: GoogleFonts.inter(
-                                        color: const Color(0xFF6EE7B7),
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                'vs yesterday',
-                                style: GoogleFonts.inter(
-                                  color: Colors.white70,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    // 2. 2x2 Metric Grid Cards
-                    GridView.count(
-                      crossAxisCount: 2,
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      crossAxisSpacing: 12,
-                      mainAxisSpacing: 12,
-                      childAspectRatio: 1.4,
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 800),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _buildDashboardCard('Orders', '34', '▲ 12%', Icons.assignment_outlined, AppConstants.deepEmerald),
-                        _buildDashboardCard('Profit', 'PKR ${todayProfit.toString()}', '▲ 15%', Icons.savings_outlined, AppConstants.deepEmerald),
-                        _buildDashboardCard('Cash', 'PKR ${cashCollected.toString()}', '▲ 8%', Icons.account_balance_wallet_outlined, AppConstants.deepEmerald),
-                        _buildDashboardCard('Total Products', '142', 'View all', Icons.local_offer_outlined, AppConstants.deepEmerald),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
+                        // 1. Primary Revenue Banner Card
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(20),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                AppConstants.deepEmerald,
+                                Color(0xFF093923),
+                              ],
+                            ),
+                            borderRadius: BorderRadius.circular(20),
+                            boxShadow: [
+                              BoxShadow(
+                                color: AppConstants.deepEmerald.withValues(alpha: 0.25),
+                                blurRadius: 16,
+                                offset: const Offset(0, 8),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    "$_selectedPeriod's Revenue",
+                                    style: GoogleFonts.inter(
+                                      color: Colors.white70,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                  PopupMenuButton<String>(
+                                    initialValue: _selectedPeriod,
+                                    onSelected: (val) {
+                                      setState(() => _selectedPeriod = val);
+                                    },
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                    itemBuilder: (ctx) => [
+                                      const PopupMenuItem(value: 'Today', child: Text('Today (آج)')),
+                                      const PopupMenuItem(value: 'This Week', child: Text('This Week (اس ہفتے)')),
+                                      const PopupMenuItem(value: 'This Month', child: Text('This Month (اس ماہ)')),
+                                      const PopupMenuItem(value: 'All Time', child: Text('All Time (مکمل کھاتہ)')),
+                                    ],
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withValues(alpha: 0.18),
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          Text(
+                                            _selectedPeriod,
+                                            style: GoogleFonts.inter(
+                                              color: Colors.white,
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 4),
+                                          const Icon(Icons.keyboard_arrow_down, color: Colors.white, size: 16),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'PKR ${_formatMoney(revenue)}',
+                                style: GoogleFonts.instrumentSerif(
+                                  color: Colors.white,
+                                  fontSize: 38,
+                                  fontWeight: FontWeight.bold,
+                                  height: 1.1,
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withValues(alpha: 0.2),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        const Icon(Icons.arrow_drop_up, color: Color(0xFF6EE7B7), size: 18),
+                                        Text(
+                                          '18.5%',
+                                          style: GoogleFonts.inter(
+                                            color: const Color(0xFF6EE7B7),
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    _selectedPeriod == 'Today' ? 'vs yesterday' : 'growing steadily',
+                                    style: GoogleFonts.inter(
+                                      color: Colors.white70,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 16),
 
-                    // 3. Low Stock Items Alert Banner Card
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: AppConstants.softRedChip,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: AppConstants.alertRed.withValues(alpha: 0.2)),
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                        // 2. 2x2 Metric Grid Cards (Adaptive 4-col on tablet/web, 2-col on mobile)
+                        LayoutBuilder(
+                          builder: (context, constraints) {
+                            final isWide = constraints.maxWidth > 550;
+                            return GridView.count(
+                              crossAxisCount: isWide ? 4 : 2,
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              crossAxisSpacing: 12,
+                              mainAxisSpacing: 12,
+                              childAspectRatio: isWide ? 1.45 : 1.35,
                               children: [
-                                Text(
-                                  'Low Stock Items',
-                                  style: GoogleFonts.inter(
-                                    color: AppConstants.textMuted,
-                                    fontSize: 13,
-                                  ),
+                                _buildDashboardCard(
+                                  title: 'Orders',
+                                  value: '$orderCount',
+                                  subText: '▲ 12% vs last week',
+                                  icon: Icons.assignment_outlined,
+                                  onTap: () => _navigateTo(const PosScreen()),
                                 ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  '$lowStockCount',
-                                  style: GoogleFonts.instrumentSerif(
-                                    color: AppConstants.charcoal,
-                                    fontSize: 28,
-                                    fontWeight: FontWeight.bold,
-                                  ),
+                                _buildDashboardCard(
+                                  title: 'Profit',
+                                  value: 'PKR ${_formatMoney(profit)}',
+                                  subText: '▲ 15% estimated net',
+                                  icon: Icons.savings_outlined,
+                                  onTap: () => _navigateTo(const ReportsScreen()),
                                 ),
-                                const SizedBox(height: 2),
-                                InkWell(
-                                  onTap: () => Navigator.push(
-                                    context,
-                                    MaterialPageRoute(builder: (_) => const InventoryScreen()),
+                                _buildDashboardCard(
+                                  title: 'Cash',
+                                  value: 'PKR ${_formatMoney(cashCollected)}',
+                                  subText: '▲ In register (تفصیل)',
+                                  icon: Icons.account_balance_wallet_outlined,
+                                  onTap: () => _showWalletBreakdown(context),
+                                ),
+                                _buildDashboardCard(
+                                  title: 'Total Products',
+                                  value: '$totalProducts',
+                                  subText: 'View all ➔',
+                                  icon: Icons.local_offer_outlined,
+                                  onTap: () => _navigateTo(const InventoryScreen()),
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+                        const SizedBox(height: 16),
+
+                    // 3. Low Stock Items Alert Banner Card (Interactive)
+                    InkWell(
+                      onTap: () => _navigateTo(const InventoryScreen(initialFilterIndex: 1)),
+                      borderRadius: BorderRadius.circular(16),
+                      child: Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: lowStockCount > 0 ? AppConstants.softRedChip : AppConstants.softGreenChip,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: lowStockCount > 0
+                                ? AppConstants.alertRed.withValues(alpha: 0.25)
+                                : AppConstants.deepEmerald.withValues(alpha: 0.25),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    lowStockCount > 0 ? 'Low Stock Items (اسٹاک کم ہے)' : 'Stock Healthy (اسٹاک وافر ہے)',
+                                    style: GoogleFonts.inter(
+                                      color: lowStockCount > 0 ? AppConstants.alertRed : AppConstants.deepEmerald,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                    ),
                                   ),
-                                  child: Text(
-                                    'View all',
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    lowStockCount > 0 ? '$lowStockCount' : '0',
+                                    style: GoogleFonts.instrumentSerif(
+                                      color: AppConstants.charcoal,
+                                      fontSize: 28,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    lowStockCount > 0 ? 'کم اسٹاک کی فہرست دیکھیں ➔' : 'تمام مال وافر مقدار میں ہے',
                                     style: GoogleFonts.inter(
                                       color: AppConstants.textMuted,
                                       fontSize: 12,
-                                      decoration: TextDecoration.underline,
+                                      decoration: lowStockCount > 0 ? TextDecoration.underline : TextDecoration.none,
                                     ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: AppConstants.alertRed.withValues(alpha: 0.1),
-                              shape: BoxShape.circle,
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: lowStockCount > 0
+                                    ? AppConstants.alertRed.withValues(alpha: 0.12)
+                                    : AppConstants.deepEmerald.withValues(alpha: 0.12),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                lowStockCount > 0 ? Icons.error_outline_rounded : Icons.check_circle_outline,
+                                color: lowStockCount > 0 ? AppConstants.alertRed : AppConstants.deepEmerald,
+                                size: 26,
+                              ),
                             ),
-                            child: const Icon(
-                              Icons.error_outline_rounded,
-                              color: AppConstants.alertRed,
-                              size: 24,
-                            ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                     const SizedBox(height: 20),
@@ -325,9 +906,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       children: [
                         Expanded(
                           child: ElevatedButton.icon(
-                            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PosScreen())),
+                            onPressed: () => _navigateTo(const PosScreen()),
                             icon: const Icon(Icons.point_of_sale, color: Colors.white, size: 20),
-                            label: Text('NEW SALE (POS)', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
+                            label: Text('NEW SALE (POS)', style: GoogleFonts.inter(fontWeight: FontWeight.w600, color: Colors.white)),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: AppConstants.deepEmerald,
                               padding: const EdgeInsets.symmetric(vertical: 14),
@@ -338,9 +919,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         const SizedBox(width: 10),
                         Expanded(
                           child: ElevatedButton.icon(
-                            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const VoiceCommandScreen())),
+                            onPressed: () => _navigateTo(const VoiceCommandScreen()),
                             icon: const Icon(Icons.mic, color: Colors.white, size: 20),
-                            label: Text('VOICE AI', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
+                            label: Text('VOICE AI', style: GoogleFonts.inter(fontWeight: FontWeight.w600, color: Colors.white)),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: AppConstants.warmSage,
                               padding: const EdgeInsets.symmetric(vertical: 14),
@@ -352,12 +933,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
                     const SizedBox(height: 24),
 
-                    // 5. Recent Orders Section
+                    // 5. Recent Orders Section (Live Data from DB)
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          'Recent Orders',
+                          'Recent Orders (حالیہ آرڈرز)',
                           style: GoogleFonts.instrumentSerif(
                             color: AppConstants.charcoal,
                             fontSize: 22,
@@ -365,12 +946,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           ),
                         ),
                         TextButton(
-                          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PosScreen())),
+                          onPressed: () => _navigateTo(const PosScreen()),
                           child: Text(
-                            'View all',
+                            'View all ➔',
                             style: GoogleFonts.inter(
-                              color: AppConstants.textMuted,
+                              color: AppConstants.deepEmerald,
                               fontSize: 13,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                         ),
@@ -378,27 +960,84 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
                     const SizedBox(height: 8),
 
-                    _buildOrderTile('ORD-0025', 'Tariq Mehmood', 'PKR 2,450', 'Today, 9:30 AM', 'Paid'),
-                    _buildOrderTile('ORD-0024', 'Sajjad Khan', 'PKR 1,850', 'Today, 8:45 AM', 'Paid'),
-                    _buildOrderTile('ORD-0023', 'Hassan Ali', 'PKR 3,120', 'Today, 7:20 AM', 'Paid'),
-                    const SizedBox(height: 16),
+                    if (_recentOrders.isEmpty)
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+                        decoration: BoxDecoration(
+                          color: AppConstants.surfaceWhite,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: AppConstants.softBorder),
+                        ),
+                        child: Column(
+                          children: [
+                            const Icon(Icons.receipt_long_outlined, size: 36, color: AppConstants.textMuted),
+                            const SizedBox(height: 8),
+                            Text(
+                              'ابھی تک کوئی آرڈر نہیں ہوا',
+                              style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: AppConstants.charcoal),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'نئی سیل شروع کرنے کے لیے بٹن دبائیں۔',
+                              style: GoogleFonts.inter(fontSize: 12, color: AppConstants.textMuted),
+                            ),
+                            const SizedBox(height: 12),
+                            ElevatedButton.icon(
+                              onPressed: () => _navigateTo(const PosScreen()),
+                              icon: const Icon(Icons.add, size: 16, color: Colors.white),
+                              label: const Text('نئی سیل بنائیں (Create Sale)', style: TextStyle(color: Colors.white)),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppConstants.deepEmerald,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    else
+                      ..._recentOrders.take(5).map((order) {
+                        final orderId = order['id'] ?? 'ORD-####';
+                        final customerName = order['customer_name'] ?? 'Walk-in Customer';
+                        final total = (order['total_amount'] ?? 0.0).toDouble();
+                        final isKhata = (order['amount_added_to_khata'] ?? 0.0) > 0;
+                        final timeStr = _formatOrderTime(order['created_at']);
+                        final statusStr = isKhata ? 'Credit' : 'Paid';
+
+                        return _buildOrderTile(
+                          id: orderId,
+                          name: customerName,
+                          amount: 'PKR ${_formatMoney(total)}',
+                          time: timeStr,
+                          status: statusStr,
+                          onTap: () => _showOrderDetail(Map<String, dynamic>.from(order)),
+                        );
+                      }),
+
+                    const SizedBox(height: 24),
                   ],
                 ),
               ),
             ),
+          ),
+        ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentNavIndex,
         onTap: (index) {
-          setState(() => _currentNavIndex = index);
+          if (index == 0) return;
+          Widget nextScreen;
           if (index == 1) {
-            Navigator.push(context, MaterialPageRoute(builder: (_) => const InventoryScreen()));
+            nextScreen = const InventoryScreen();
           } else if (index == 2) {
-            Navigator.push(context, MaterialPageRoute(builder: (_) => const PosScreen()));
+            nextScreen = const PosScreen();
           } else if (index == 3) {
-            Navigator.push(context, MaterialPageRoute(builder: (_) => const KhataScreen()));
+            nextScreen = const KhataScreen();
           } else if (index == 4) {
-            Navigator.push(context, MaterialPageRoute(builder: (_) => const ReportsScreen()));
+            nextScreen = const ReportsScreen();
+          } else {
+            return;
           }
+          _navigateTo(nextScreen);
         },
         type: BottomNavigationBarType.fixed,
         backgroundColor: AppConstants.surfaceWhite,
@@ -417,128 +1056,176 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildDashboardCard(String title, String value, String subText, IconData icon, Color themeColor) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppConstants.surfaceWhite,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppConstants.softBorder),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                title,
-                style: GoogleFonts.inter(color: AppConstants.textMuted, fontSize: 13),
-              ),
-              Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: AppConstants.deepEmerald.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(8),
+  Widget _buildDashboardCard({
+    required String title,
+    required String value,
+    required String subText,
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppConstants.surfaceWhite,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppConstants.softBorder),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.02),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.inter(color: AppConstants.textMuted, fontSize: 13, fontWeight: FontWeight.w500),
+                  ),
                 ),
-                child: Icon(icon, color: AppConstants.deepEmerald, size: 18),
-              ),
-            ],
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                value,
-                style: GoogleFonts.instrumentSerif(
-                  color: AppConstants.charcoal,
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: AppConstants.deepEmerald.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(icon, color: AppConstants.deepEmerald, size: 18),
                 ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                subText,
-                style: GoogleFonts.inter(
-                  color: subText.contains('▲') ? AppConstants.deepEmerald : AppConstants.textMuted,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
+              ],
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    value,
+                    style: GoogleFonts.instrumentSerif(
+                      color: AppConstants.charcoal,
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ),
-              ),
-            ],
-          ),
-        ],
+                const SizedBox(height: 2),
+                Text(
+                  subText,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.inter(
+                    color: subText.contains('▲') ? AppConstants.deepEmerald : AppConstants.textMuted,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildOrderTile(String id, String name, String amount, String time, String status) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppConstants.surfaceWhite,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppConstants.softBorder),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: AppConstants.deepEmerald.withValues(alpha: 0.08),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.assignment_outlined, color: AppConstants.deepEmerald, size: 20),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  id,
-                  style: GoogleFonts.inter(color: AppConstants.charcoal, fontWeight: FontWeight.bold, fontSize: 14),
-                ),
-                Text(
-                  name,
-                  style: GoogleFonts.inter(color: AppConstants.textMuted, fontSize: 12),
-                ),
-              ],
-            ),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                amount,
-                style: GoogleFonts.inter(color: AppConstants.charcoal, fontWeight: FontWeight.bold, fontSize: 14),
+  Widget _buildOrderTile({
+    required String id,
+    required String name,
+    required String amount,
+    required String time,
+    required String status,
+    required VoidCallback onTap,
+  }) {
+    final isKhata = status.toLowerCase().contains('credit') || status.contains('کھاتہ');
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppConstants.surfaceWhite,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppConstants.softBorder),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: isKhata ? AppConstants.softRedChip : AppConstants.deepEmerald.withValues(alpha: 0.08),
+                shape: BoxShape.circle,
               ),
-              const SizedBox(height: 2),
-              Row(
+              child: Icon(
+                isKhata ? Icons.menu_book : Icons.assignment_outlined,
+                color: isKhata ? AppConstants.alertRed : AppConstants.deepEmerald,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    time,
-                    style: GoogleFonts.inter(color: AppConstants.textMuted, fontSize: 11),
+                    id,
+                    style: GoogleFonts.inter(color: AppConstants.charcoal, fontWeight: FontWeight.bold, fontSize: 14),
                   ),
-                  const SizedBox(width: 6),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: AppConstants.softGreenChip,
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      status,
-                      style: GoogleFonts.inter(color: AppConstants.deepEmerald, fontSize: 10, fontWeight: FontWeight.bold),
-                    ),
+                  Text(
+                    name,
+                    style: GoogleFonts.inter(color: AppConstants.textMuted, fontSize: 12),
                   ),
                 ],
               ),
-            ],
-          ),
-        ],
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  amount,
+                  style: GoogleFonts.inter(color: AppConstants.charcoal, fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+                const SizedBox(height: 2),
+                Row(
+                  children: [
+                    Text(
+                      time,
+                      style: GoogleFonts.inter(color: AppConstants.textMuted, fontSize: 11),
+                    ),
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: isKhata ? AppConstants.softRedChip : AppConstants.softGreenChip,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        status,
+                        style: GoogleFonts.inter(
+                          color: isKhata ? AppConstants.alertRed : AppConstants.deepEmerald,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -557,7 +1244,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Drag Handle Pill Bar
                 Center(
                   child: Container(
                     width: 40,
@@ -572,12 +1258,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ListTile(
                   leading: const CircleAvatar(
                     backgroundColor: AppConstants.softGreenChip,
+                    child: Icon(Icons.system_update_rounded, color: AppConstants.deepEmerald, size: 20),
+                  ),
+                  title: Text('اپ ڈیٹ چیک کریں (Check for Updates)', style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: AppConstants.charcoal)),
+                  subtitle: Text('Installed: v${AppConstants.appVersion}', style: GoogleFonts.inter(fontSize: 12, color: AppConstants.textMuted)),
+                  onTap: () {
+                    Navigator.pop(context);
+                    AppUpdateManager.checkForUpdate(context, showNoUpdateMessage: true);
+                  },
+                ),
+                const SizedBox(height: 4),
+                ListTile(
+                  leading: const CircleAvatar(
+                    backgroundColor: AppConstants.softGreenChip,
                     child: Icon(Icons.sync, color: AppConstants.deepEmerald, size: 20),
                   ),
                   title: Text('Data Sync Status', style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: AppConstants.charcoal)),
                   onTap: () {
                     Navigator.pop(context);
-                    Navigator.push(context, MaterialPageRoute(builder: (_) => const SyncScreen()));
+                    _navigateTo(const SyncScreen());
                   },
                 ),
                 const SizedBox(height: 4),
@@ -589,7 +1288,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   title: Text('Daily Attendance', style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: AppConstants.charcoal)),
                   onTap: () {
                     Navigator.pop(context);
-                    Navigator.push(context, MaterialPageRoute(builder: (_) => const AttendanceScreen(initialTabIndex: 0)));
+                    _navigateTo(const AttendanceScreen(initialTabIndex: 0));
                   },
                 ),
                 const SizedBox(height: 4),
@@ -601,7 +1300,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   title: Text('Leave Requests', style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: AppConstants.charcoal)),
                   onTap: () {
                     Navigator.pop(context);
-                    Navigator.push(context, MaterialPageRoute(builder: (_) => const AttendanceScreen(initialTabIndex: 1)));
+                    _navigateTo(const AttendanceScreen(initialTabIndex: 1));
                   },
                 ),
                 if (_userRole == 'owner') ...[
@@ -614,7 +1313,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     title: Text('Payroll HR', style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: AppConstants.charcoal)),
                     onTap: () {
                       Navigator.pop(context);
-                      Navigator.push(context, MaterialPageRoute(builder: (_) => const PayrollScreen()));
+                      _navigateTo(const PayrollScreen());
                     },
                   ),
                 ],

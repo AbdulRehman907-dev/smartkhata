@@ -5,7 +5,8 @@ import '../core/constants.dart';
 import '../models/product.dart';
 
 class InventoryScreen extends StatefulWidget {
-  const InventoryScreen({super.key});
+  final int initialFilterIndex;
+  const InventoryScreen({super.key, this.initialFilterIndex = 0});
 
   @override
   State<InventoryScreen> createState() => _InventoryScreenState();
@@ -14,7 +15,7 @@ class InventoryScreen extends StatefulWidget {
 class _InventoryScreenState extends State<InventoryScreen> {
   List<Product> _products = [];
   bool _isLoading = true;
-  int _activeFilterIndex = 0; // 0: All, 1: Low Stock, 2: Out of Stock
+  late int _activeFilterIndex;
   String? _selectedCategory;
   final _searchController = TextEditingController();
 
@@ -46,6 +47,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
   @override
   void initState() {
     super.initState();
+    _activeFilterIndex = widget.initialFilterIndex;
     _fetchProducts();
   }
 

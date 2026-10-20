@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.routers import (
     auth, inventory, suppliers, customers, orders,
     employees, attendance, payroll, cashbook, reports,
-    forecast, restock, ai, sync, invoice, backup
+    forecast, restock, ai, sync, invoice, backup, app_update
 )
 from app.models.schemas import utc_now_iso
 
@@ -181,6 +181,103 @@ async def lifespan(app: FastAPI):
                 "updated_at": utc_now_iso()
             }
         ])
+
+    # Seed Sample Orders if empty
+    order_count = await db["orders"].count_documents({})
+    if order_count == 0:
+        now_ts = utc_now_iso()
+        await db["orders"].insert_many([
+            {
+                "_id": str(uuid.uuid4()),
+                "id": "ORD-1001",
+                "line_items": [
+                    {
+                        "product_id": "prod-001",
+                        "product_name": "Basmati Rice (Super Kernal)",
+                        "category": "Grains",
+                        "buying_price": 280.0,
+                        "unit_price": 320.0,
+                        "quantity": 2.0,
+                        "line_total": 640.0
+                    },
+                    {
+                        "product_id": "prod-003",
+                        "product_name": "White Sugar",
+                        "category": "Grocery",
+                        "buying_price": 135.0,
+                        "unit_price": 150.0,
+                        "quantity": 3.0,
+                        "line_total": 450.0
+                    }
+                ],
+                "subtotal": 1090.0,
+                "discount": 0.0,
+                "total_amount": 1090.0,
+                "payment_method": "cash",
+                "amount_paid_now": 1090.0,
+                "amount_added_to_khata": 0.0,
+                "customer_id": "cust-002",
+                "customer_name": "Tariq Mahmood",
+                "created_at": now_ts
+            },
+            {
+                "_id": str(uuid.uuid4()),
+                "id": "ORD-1002",
+                "line_items": [
+                    {
+                        "product_id": "prod-004",
+                        "product_name": "Cooking Oil (1 Litre)",
+                        "category": "Grocery",
+                        "buying_price": 420.0,
+                        "unit_price": 470.0,
+                        "quantity": 2.0,
+                        "line_total": 940.0
+                    },
+                    {
+                        "product_id": "prod-002",
+                        "product_name": "Chakki Atta (Wheat Flour)",
+                        "category": "Flour",
+                        "buying_price": 120.0,
+                        "unit_price": 140.0,
+                        "quantity": 5.0,
+                        "line_total": 700.0
+                    }
+                ],
+                "subtotal": 1640.0,
+                "discount": 0.0,
+                "total_amount": 1640.0,
+                "payment_method": "credit",
+                "amount_paid_now": 0.0,
+                "amount_added_to_khata": 1640.0,
+                "customer_id": "cust-001",
+                "customer_name": "Muhammad Ali",
+                "created_at": now_ts
+            },
+            {
+                "_id": str(uuid.uuid4()),
+                "id": "ORD-1003",
+                "line_items": [
+                    {
+                        "product_id": "prod-005",
+                        "product_name": "Desi Ghee (500g)",
+                        "category": "Dairy",
+                        "buying_price": 580.0,
+                        "unit_price": 650.0,
+                        "quantity": 1.0,
+                        "line_total": 650.0
+                    }
+                ],
+                "subtotal": 650.0,
+                "discount": 0.0,
+                "total_amount": 650.0,
+                "payment_method": "cash",
+                "amount_paid_now": 650.0,
+                "amount_added_to_khata": 0.0,
+                "customer_id": None,
+                "customer_name": "Walk-in Customer",
+                "created_at": now_ts
+            }
+        ])
     yield
 
 app = FastAPI(
@@ -216,6 +313,7 @@ app.include_router(ai.router)
 app.include_router(sync.router)
 app.include_router(invoice.router)
 app.include_router(backup.router)
+app.include_router(app_update.router)
 
 @app.get("/")
 async def root():
